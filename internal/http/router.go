@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Archiit19/customer-service/internal/customer"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/yourname/customer-service/internal/customer"
 )
 
 func NewRouter(svc *customer.Service) http.Handler {

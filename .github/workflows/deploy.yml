@@ -9,33 +9,33 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout code
-  uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  - name: Build Docker image
-  run: docker build -t customer-service:latest .
+      - name: Build Docker image
+        run: docker build -t customer-service:latest .
 
-- name: Save Docker image to tar
-  run: docker save customer-service:latest -o customer-service.tar
+      - name: Save Docker image to tar
+        run: docker save customer-service:latest -o customer-service.tar
 
-  - name: Copy image to EC2
-uses: appleboy/scp-action@v0.1.7
-with:
-host: ${{ secrets.EC2_HOST }}
-username: ${{ secrets.EC2_USER }}
-key: ${{ secrets.EC2_KEY }}
-source: "customer-service.tar"
-target: "/home/ubuntu/"
+      - name: Copy image to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          source: "customer-service.tar"
+          target: "/home/${{ secrets.EC2_USER }}/"
 
-  - name: SSH into EC2 and deploy container
-uses: appleboy/ssh-action@v1.1.0
-with:
-host: ${{ secrets.EC2_HOST }}
-username: ${{ secrets.EC2_USER }}
-key: ${{ secrets.EC2_KEY }}
-script: |
-  docker load -i customer-service.tar
-  docker stop customer-service || true
-  docker rm customer-service || true
-  docker run -d --name customer-service -p 8080:8080 customer-service:latest
+      - name: SSH into EC2 and deploy container
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            docker load -i customer-service.tar
+            docker stop customer-service || true
+            docker rm customer-service || true
+            docker run -d --name customer-service -p 8080:8080 customer-service:latest

@@ -1,59 +1,59 @@
 package main
 
 import (
-    "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-    "github.com/yourname/customer-service/internal/config"
-    "github.com/yourname/customer-service/internal/customer"
-    dbpkg "github.com/yourname/customer-service/internal/db"
-    httph "github.com/yourname/customer-service/internal/http"
+	"github.com/Archiit19/customer-service/internal/config"
+	"github.com/Archiit19/customer-service/internal/customer"
+	dbpkg "github.com/Archiit19/customer-service/internal/db"
+	httph "github.com/Archiit19/customer-service/internal/http"
 )
 
 func main() {
-    cfg := config.Load()
+	cfg := config.Load()
 
-    ctx := context.Background()
-    pool, err := dbpkg.NewPool(ctx, cfg)
-    if err != nil {
-        log.Fatalf("DB: %v", err)
-    }
-    defer pool.Close()
+	ctx := context.Background()
+	pool, err := dbpkg.NewPool(ctx, cfg)
+	if err != nil {
+		log.Fatalf("DB: %v", err)
+	}
+	defer pool.Close()
 
-    repo := customer.NewPGRepository(pool)
-    svc := customer.NewService(repo)
-    router := httph.NewRouter(svc)
+	repo := customer.NewPGRepository(pool)
+	svc := customer.NewService(repo)
+	router := httph.NewRouter(svc)
 
-    srv := &http.Server{
-        Addr:              ":" + cfg.AppPort,
-        Handler:          router,
-        ReadTimeout:      10 * time.Second,
-        WriteTimeout:     15 * time.Second,
-        ReadHeaderTimeout: 5 * time.Second,
-        IdleTimeout:      60 * time.Second,
-    }
+	srv := &http.Server{
+		Addr:              ":" + cfg.AppPort,
+		Handler:           router,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 
-    go func() {
-        log.Printf("Customer Service listening on :%s", cfg.AppPort)
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("listen: %v", err)
-        }
-    }()
+	go func() {
+		log.Printf("Customer Service listening on :%s", cfg.AppPort)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
 
-    // graceful shutdown
-    stop := make(chan os.Signal, 1)
-    signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-    <-stop
+	// graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
 
-    ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    if err := srv.Shutdown(ctxShutdown); err != nil {
-        log.Printf("shutdown error: %v", err)
-    }
-    log.Println("server stopped gracefully")
+	ctxShutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctxShutdown); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
+	log.Println("server stopped gracefully")
 }
