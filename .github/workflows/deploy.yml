@@ -19,6 +19,9 @@ jobs:
       - name: Save Docker image to tar
         run: docker save customer-service:latest -o customer-service.tar
 
+      - name: Fix permissions
+        run: chmod 644 customer-service.tar
+
       - name: Copy image to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
