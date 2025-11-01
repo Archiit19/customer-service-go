@@ -1,4 +1,4 @@
-module github.com/yourname/customer-service
+module github.com/Archiit19/customer-service-go
 
 go 1.23.0
 

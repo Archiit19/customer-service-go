@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Archiit19/customer-service/internal/config"
-	"github.com/Archiit19/customer-service/internal/customer"
-	dbpkg "github.com/Archiit19/customer-service/internal/db"
-	httph "github.com/Archiit19/customer-service/internal/http"
+	"github.com/Archiit19/customer-service-go/internal/config"
+	"github.com/Archiit19/customer-service-go/internal/customer"
+	dbpkg "github.com/Archiit19/customer-service-go/internal/db"
+	httph "github.com/Archiit19/customer-service-go/internal/http"
 )
 
 func main() {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Archiit19/customer-service/internal/config"
+	"github.com/Archiit19/customer-service-go/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

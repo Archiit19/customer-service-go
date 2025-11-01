@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Archiit19/customer-service/internal/customer"
+	"github.com/Archiit19/customer-service-go/internal/customer"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
