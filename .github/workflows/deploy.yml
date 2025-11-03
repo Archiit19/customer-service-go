@@ -41,4 +41,11 @@ jobs:
             docker load -i customer-service.tar
             docker stop customer-service || true
             docker rm customer-service || true
-            docker run -d --name customer-service -p 8080:8080 customer-service:latest
+            docker run -d --name customer-service -p 8080:8080 \
+              -e DB_HOST='${{ secrets.DB_HOST }}' \
+              -e DB_PORT='${{ secrets.DB_PORT }}' \
+              -e DB_USER='${{ secrets.DB_USER }}' \
+              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+              -e DB_NAME='${{ secrets.DB_NAME }}' \
+              -e DB_SSLMODE='${{ secrets.DB_SSLMODE }}' \
+              customer-service:latest
