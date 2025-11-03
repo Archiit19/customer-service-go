@@ -70,7 +70,7 @@ func (s *Service) CreateVerification(ctx context.Context, customerID, pan string
 
 	v := &Verification{
 		CustomerID: cid,
-		PANNumber:  pan,
+		PANNumber:  &pan,
 		Status:     StatusPending,
 	}
 	return s.customerRepo.CreateVerification(ctx, v)
