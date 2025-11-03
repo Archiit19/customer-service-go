@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Archiit19/customer-service-go/internal/customer"
@@ -47,8 +48,30 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			}
 			return
 		}
-		writeJSON(w, http.StatusCreated, created)
+
+		baseURL := fmt.Sprintf("%s://%s", getScheme(r), r.Host)
+		resp := map[string]any{
+			"customer_id":      created.ID,
+			"name":             created.Name,
+			"email":            created.Email,
+			"phone":            created.Phone,
+			"created_at":       created.CreatedAt,
+			"updated_at":       created.UpdatedAt,
+			"status_url":       fmt.Sprintf("%s/v1/customers/%s/status", baseURL, created.ID),
+			"verification_url": fmt.Sprintf("%s/v1/customers/%s/verification", baseURL, created.ID),
+		}
+		writeJSON(w, http.StatusCreated, resp)
 	}
+}
+
+func getScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	if s := r.Header.Get("X-Forwarded-Proto"); s != "" {
+		return s
+	}
+	return "http"
 }
 
 // -------------------------------
@@ -71,7 +94,19 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			}
 			return
 		}
-		writeJSON(w, http.StatusOK, c)
+
+		baseURL := fmt.Sprintf("%s://%s", getScheme(r), r.Host)
+		resp := map[string]any{
+			"customer_id":      c.ID,
+			"name":             c.Name,
+			"email":            c.Email,
+			"phone":            c.Phone,
+			"created_at":       c.CreatedAt,
+			"updated_at":       c.UpdatedAt,
+			"status_url":       fmt.Sprintf("%s/v1/customers/%s/status", baseURL, c.ID),
+			"verification_url": fmt.Sprintf("%s/v1/customers/%s/verification", baseURL, c.ID),
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 
