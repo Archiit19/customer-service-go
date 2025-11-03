@@ -49,7 +49,6 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			return
 		}
 
-		baseURL := fmt.Sprintf("%s://%s", getScheme(r), r.Host)
 		resp := map[string]any{
 			"customer_id":      created.ID,
 			"name":             created.Name,
@@ -57,8 +56,8 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			"phone":            created.Phone,
 			"created_at":       created.CreatedAt,
 			"updated_at":       created.UpdatedAt,
-			"status_url":       fmt.Sprintf("%s/v1/customers/%s/status", baseURL, created.ID),
-			"verification_url": fmt.Sprintf("%s/v1/customers/%s/verification", baseURL, created.ID),
+			"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
+			"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
 		}
 		writeJSON(w, http.StatusCreated, resp)
 	}
@@ -95,7 +94,6 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			return
 		}
 
-		baseURL := fmt.Sprintf("%s://%s", getScheme(r), r.Host)
 		resp := map[string]any{
 			"customer_id":      c.ID,
 			"name":             c.Name,
@@ -103,8 +101,8 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			"phone":            c.Phone,
 			"created_at":       c.CreatedAt,
 			"updated_at":       c.UpdatedAt,
-			"status_url":       fmt.Sprintf("%s/v1/customers/%s/status", baseURL, c.ID),
-			"verification_url": fmt.Sprintf("%s/v1/customers/%s/verification", baseURL, c.ID),
+			"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
+			"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
@@ -138,7 +136,19 @@ func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
-
+		var out []map[string]any
+		for _, c := range items {
+			out = append(out, map[string]any{
+				"customer_id":      c.ID,
+				"name":             c.Name,
+				"email":            c.Email,
+				"phone":            c.Phone,
+				"created_at":       c.CreatedAt,
+				"updated_at":       c.UpdatedAt,
+				"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
+				"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
+			})
+		}
 		resp := map[string]any{
 			"page":  page,
 			"limit": limit,
