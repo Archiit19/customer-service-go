@@ -73,14 +73,13 @@ func isUniqueViolation(err error) bool {
 
 // Create a new customer
 func (r *PGRepository) Create(ctx context.Context, c *Customer) (*Customer, error) {
+	c.ID = uuid.New()
 	q := `
 		INSERT INTO customers (id, name, email, phone)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, name, email, phone, created_at, updated_at;
 	`
-	c.ID = uuid.New()
 	row := r.pool.QueryRow(ctx, q, c.ID, c.Name, strings.ToLower(c.Email), c.Phone)
-
 	var out Customer
 	if err := row.Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
@@ -88,44 +87,61 @@ func (r *PGRepository) Create(ctx context.Context, c *Customer) (*Customer, erro
 		}
 		return nil, err
 	}
+
+	//  create corresponding verification record
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO verifications (customer_id, status, pan_number) VALUES ($1, 'NOT_FOUND', NULL);`,
+		out.ID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verification: %w", err)
+	}
+
+	out.Status = "NOT_FOUND"
+	out.PANNumber = nil
 	return &out, nil
 }
 
 // Get customer by ID
 func (r *PGRepository) Get(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	q := `
-		SELECT id, name, email, phone, created_at, updated_at
-		FROM customers
-		WHERE id = $1 AND deleted_at IS NULL;
+		SELECT c.id, c.name, c.email, c.phone,
+		       v.pan_number, v.status,
+		       c.created_at, c.updated_at
+		FROM customers c
+		LEFT JOIN verifications v ON v.customer_id = c.id
+		WHERE c.id = $1 AND c.deleted_at IS NULL;
 	`
-	var out Customer
-	err := r.pool.QueryRow(ctx, q, id).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
+	var c Customer
+	err := r.pool.QueryRow(ctx, q, id).Scan(
+		&c.ID, &c.Name, &c.Email, &c.Phone,
+		&c.PANNumber, &c.Status,
+		&c.CreatedAt, &c.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
 	}
-	return &out, nil
+	return &c, err
 }
 
 // List customers with pagination
 func (r *PGRepository) List(ctx context.Context, offset, limit int) ([]Customer, int, error) {
 	countSQL := `SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL;`
-
 	var total int
 	if err := r.pool.QueryRow(ctx, countSQL).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	q := `
-		SELECT id, name, email, phone, created_at, updated_at
-		FROM customers
-		WHERE deleted_at IS NULL
-		ORDER BY created_at DESC
+		SELECT c.id, c.name, c.email, c.phone,
+		       v.pan_number, v.status,
+		       c.created_at, c.updated_at
+		FROM customers c
+		LEFT JOIN verifications v ON v.customer_id = c.id
+		WHERE c.deleted_at IS NULL
+		ORDER BY c.created_at DESC
 		LIMIT $1 OFFSET $2;
 	`
-
 	rows, err := r.pool.Query(ctx, q, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -135,16 +151,15 @@ func (r *PGRepository) List(ctx context.Context, offset, limit int) ([]Customer,
 	var res []Customer
 	for rows.Next() {
 		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&c.ID, &c.Name, &c.Email, &c.Phone,
+			&c.PANNumber, &c.Status,
+			&c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
 			return nil, 0, err
 		}
 		res = append(res, c)
 	}
-
-	if rows.Err() != nil {
-		return nil, 0, rows.Err()
-	}
-
 	return res, total, nil
 }
 

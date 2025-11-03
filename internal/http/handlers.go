@@ -56,8 +56,8 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			"phone":            created.Phone,
 			"created_at":       created.CreatedAt,
 			"updated_at":       created.UpdatedAt,
-			"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
-			"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
+			"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
+			"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
 		}
 		writeJSON(w, http.StatusCreated, resp)
 	}

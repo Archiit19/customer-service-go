@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nyaruka/phonenumbers"
 )
 
 // ------------------------------------------------------
@@ -18,6 +19,8 @@ type Customer struct {
 	Name      string    `json:"name"`
 	Email     string    `json:"email"`
 	Phone     string    `json:"phone"`
+	PANNumber *string   `json:"pan_number,omitempty"`
+	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -36,9 +39,16 @@ func (c *Customer) ValidateForCreate() error {
 	if _, err := mail.ParseAddress(c.Email); err != nil {
 		return ErrInvalidEmail
 	}
-	if len(strings.TrimSpace(c.Phone)) < 6 {
+	if strings.TrimSpace(c.Phone) == "" {
 		return ErrInvalidPhone
 	}
+
+	// ✅ Validate phone number using phonenumbers library
+	num, err := phonenumbers.Parse(c.Phone, "IN") // "IN" → default region for India
+	if err != nil || !phonenumbers.IsValidNumber(num) {
+		return ErrInvalidPhone
+	}
+
 	return nil
 }
 
@@ -52,8 +62,12 @@ func (c *Customer) ValidateForUpdate() error {
 			return ErrInvalidEmail
 		}
 	}
-	if c.Phone != "" && len(strings.TrimSpace(c.Phone)) < 6 {
-		return ErrInvalidPhone
+
+	if c.Phone != "" {
+		num, err := phonenumbers.Parse(c.Phone, "IN") // "IN" = default region (India)
+		if err != nil || !phonenumbers.IsValidNumber(num) {
+			return ErrInvalidPhone
+		}
 	}
 	return nil
 }
