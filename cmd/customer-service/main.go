@@ -25,14 +25,10 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 🔹 Initialize repositories
-	customerRepo := customer.NewPGRepository(pool)
-	verificationRepo := customer.NewVerificationRepository(pool)
+	repo := customer.NewPGRepository(pool)
 
-	// 🔹 Create service (combined customer + verification logic)
-	svc := customer.NewService(customerRepo, verificationRepo)
+	svc := customer.NewService(repo)
 
-	// 🔹 Create router
 	router := httph.NewRouter(svc)
 
 	// 🔹 HTTP server config
