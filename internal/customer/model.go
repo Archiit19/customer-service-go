@@ -87,7 +87,7 @@ const (
 type Verification struct {
 	ID         uuid.UUID          `json:"id"`
 	CustomerID uuid.UUID          `json:"customer_id"`
-	PANNumber  string             `json:"pan_number"`
+	PANNumber  *string            `json:"pan_number"`
 	Status     VerificationStatus `json:"status"`
 	CreatedAt  time.Time          `json:"created_at"`
 	UpdatedAt  time.Time          `json:"updated_at"`
