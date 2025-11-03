@@ -10,13 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// POST /customers
+// -------------------------------
+// POST /v1/customers
+// -------------------------------
 type createCustomerRequest struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 	Phone string `json:"phone"`
-	// kyc_status is optional at creation; defaults to PENDING
-	KYCStatus *string `json:"kyc_status,omitempty"`
 }
 
 func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
@@ -26,13 +26,11 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+
 		c := &customer.Customer{
 			Name:  req.Name,
 			Email: req.Email,
 			Phone: req.Phone,
-		}
-		if req.KYCStatus != nil {
-			c.KYCStatus = customer.KYCStatus(*req.KYCStatus)
 		}
 
 		created, err := svc.Create(r.Context(), c)
@@ -40,8 +38,7 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			switch {
 			case errors.Is(err, customer.ErrInvalidEmail),
 				errors.Is(err, customer.ErrInvalidName),
-				errors.Is(err, customer.ErrInvalidPhone),
-				errors.Is(err, customer.ErrInvalidKYC):
+				errors.Is(err, customer.ErrInvalidPhone):
 				writeError(w, http.StatusBadRequest, err.Error())
 			case errors.Is(err, customer.ErrConflict):
 				writeError(w, http.StatusConflict, err.Error())
@@ -54,7 +51,9 @@ func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// GET /customers/{id}
+// -------------------------------
+// GET /v1/customers/{id}
+// -------------------------------
 func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
@@ -76,23 +75,16 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// GET /customers?kyc_status=&page=&limit=
+// -------------------------------
+// GET /v1/customers?status=&page=&limit=
+// -------------------------------
 func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 
-		var kyc *customer.KYCStatus
-		if v := q.Get("kyc_status"); v != "" {
-			ks := customer.KYCStatus(v)
-			if !ks.Valid() {
-				writeError(w, http.StatusBadRequest, "invalid kyc_status")
-				return
-			}
-			kyc = &ks
-		}
-
 		page := 1
 		limit := 20
+
 		if v := q.Get("page"); v != "" {
 			if _, err := fmtSscanf(v, &page); err != nil || page < 1 {
 				writeError(w, http.StatusBadRequest, "invalid page")
@@ -106,11 +98,12 @@ func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 			}
 		}
 
-		items, total, err := svc.List(r.Context(), kyc, page, limit)
+		items, total, err := svc.List(r.Context(), page, limit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
+
 		resp := map[string]any{
 			"page":  page,
 			"limit": limit,
@@ -121,7 +114,9 @@ func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// helper because fmt.Sscanf requires format; use simple parse
+// -------------------------------
+// helper: parse integer safely
+// -------------------------------
 func fmtSscanf(s string, dst *int) (int, error) {
 	var n int
 	for i := 0; i < len(s); i++ {
@@ -134,14 +129,16 @@ func fmtSscanf(s string, dst *int) (int, error) {
 	return 1, nil
 }
 
-// PUT /customers/{id}
-type updateCustomerRequest struct {
+// -------------------------------
+// PATCH /v1/customers/{id}
+// -------------------------------
+type patchCustomerRequest struct {
 	Name  *string `json:"name,omitempty"`
 	Email *string `json:"email,omitempty"`
 	Phone *string `json:"phone,omitempty"`
 }
 
-func updateCustomerHandler(svc *customer.Service) http.HandlerFunc {
+func patchCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id, err := uuid.Parse(idStr)
@@ -149,71 +146,14 @@ func updateCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
-		var req updateCustomerRequest
+
+		var req patchCustomerRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
-		// basic validation via model
-		tmp := customer.Customer{}
-		if req.Name != nil {
-			tmp.Name = *req.Name
-		}
-		if req.Email != nil {
-			tmp.Email = *req.Email
-		}
-		if req.Phone != nil {
-			tmp.Phone = *req.Phone
-		}
-		if err := tmp.ValidateForUpdate(); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 
-		updated, err := svc.Update(r.Context(), id, customer.UpdateCustomer{
-			Name:  req.Name,
-			Email: req.Email,
-			Phone: req.Phone,
-		})
-		if err != nil {
-			switch {
-			case errors.Is(err, customer.ErrNotFound):
-				writeError(w, http.StatusNotFound, "not found")
-			case errors.Is(err, customer.ErrConflict):
-				writeError(w, http.StatusConflict, "conflict")
-			default:
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
-		writeJSON(w, http.StatusOK, updated)
-	}
-}
-
-// PATCH /customers/{id}/kyc
-type kycUpdateRequest struct {
-	KYCStatus string `json:"kyc_status"`
-}
-
-func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid id")
-			return
-		}
-		var req kycUpdateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-		status := customer.KYCStatus(req.KYCStatus)
-		if !status.Valid() {
-			writeError(w, http.StatusBadRequest, "invalid kyc_status")
-			return
-		}
-		updated, err := svc.UpdateKYC(r.Context(), id, status)
+		updated, err := svc.Update(r.Context(), id, req.Name, req.Email, req.Phone)
 		if err != nil {
 			if errors.Is(err, customer.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not found")
@@ -226,7 +166,64 @@ func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// DELETE /customers/{id}
+// -------------------------------
+// GET /v1/customers/{id}/status
+// -------------------------------
+func getCustomerKYCStatusHandler(svc *customer.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		verification, err := svc.GetVerificationByCustomerID(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "verification record not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, verification)
+	}
+}
+
+// -------------------------------
+// PATCH /v1/customers/{id}/verification
+// -------------------------------
+func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		var payload struct {
+			PAN    string `json:"pan_number,omitempty"`
+			Status string `json:"status,omitempty"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+
+		if payload.PAN != "" {
+			v, err := svc.CreateVerification(r.Context(), id, payload.PAN)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusCreated, v)
+			return
+		}
+
+		if payload.Status != "" {
+			v, err := svc.UpdateVerificationStatus(r.Context(), id, payload.Status)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, v)
+			return
+		}
+
+		writeError(w, http.StatusBadRequest, "nothing to update")
+	}
+}
+
+// -------------------------------
+// DELETE /v1/customers/{id}
+// -------------------------------
 func deleteCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")

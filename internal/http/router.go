@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// NewRouter configures all routes
 func NewRouter(svc *customer.Service) http.Handler {
 	r := chi.NewRouter()
 
@@ -26,13 +27,19 @@ func NewRouter(svc *customer.Service) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	// 🔹 Customer CRUD (flat definitions)
-	r.Post("/api/v1/customers", createCustomerHandler(svc))
-	r.Get("/api/v1/customers", listCustomersHandler(svc))
-	r.Get("/api/v1/customers/{id}", getCustomerHandler(svc))
-	r.Put("/api/v1/customers/{id}", updateCustomerHandler(svc))
-	r.Delete("/api/v1/customers/{id}", deleteCustomerHandler(svc))
-	r.Patch("/api/v1/customers/{id}/kyc", updateKYCHandler(svc))
+	r.Post("/v1/customers", createCustomerHandler(svc))
+
+	r.Delete("/v1/customers/{id}", deleteCustomerHandler(svc))
+
+	r.Patch("/v1/customers/{id}", patchCustomerHandler(svc))
+
+	r.Get("/v1/customers", listCustomersHandler(svc))
+
+	r.Get("/v1/customers/{id}", getCustomerHandler(svc))
+
+	r.Get("/v1/customers/{id}/status", getCustomerKYCStatusHandler(svc))
+
+	r.Patch("/v1/customers/{id}/verification", updateKYCHandler(svc))
 
 	return r
 }

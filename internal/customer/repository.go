@@ -12,19 +12,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ----------------------------------------------------------------------
+// Common errors
+// ----------------------------------------------------------------------
 var (
-	ErrNotFound = errors.New("customer not found")
-	ErrConflict = errors.New("conflict: email or phone already exists")
+	ErrNotFound             = errors.New("customer not found")
+	ErrConflict             = errors.New("conflict: email or phone already exists")
+	ErrVerificationNotFound = errors.New("verification not found")
+	ErrPANAlreadyExists     = errors.New("PAN already exists")
 )
 
+// ----------------------------------------------------------------------
+// Repository interface
+// ----------------------------------------------------------------------
+
 type Repository interface {
+	// Customer operations
 	Create(ctx context.Context, c *Customer) (*Customer, error)
 	Get(ctx context.Context, id uuid.UUID) (*Customer, error)
-	List(ctx context.Context, kyc *KYCStatus, offset, limit int) ([]Customer, int, error)
+	List(ctx context.Context, offset, limit int) ([]Customer, int, error)
 	Update(ctx context.Context, id uuid.UUID, upd UpdateCustomer) (*Customer, error)
-	UpdateKYC(ctx context.Context, id uuid.UUID, status KYCStatus) (*Customer, error)
 	SoftDelete(ctx context.Context, id uuid.UUID) error
+
+	// Verification operations
+	CreateVerification(ctx context.Context, v *Verification) (*Verification, error)
+	GetVerificationByCustomerID(ctx context.Context, cid uuid.UUID) (*Verification, error)
+	UpdateVerificationStatus(ctx context.Context, cid uuid.UUID, status VerificationStatus) error
 }
+
+// ----------------------------------------------------------------------
+// PGRepository implements Repository using pgxpool
+// ----------------------------------------------------------------------
 
 type PGRepository struct {
 	pool *pgxpool.Pool
@@ -34,12 +52,17 @@ func NewPGRepository(pool *pgxpool.Pool) *PGRepository {
 	return &PGRepository{pool: pool}
 }
 
+// ----------------------------------------------------------------------
+// Customer operations
+// ----------------------------------------------------------------------
+
 type UpdateCustomer struct {
 	Name  *string
 	Email *string
 	Phone *string
 }
 
+// Check for unique constraint violation
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -48,16 +71,18 @@ func isUniqueViolation(err error) bool {
 	return false
 }
 
+// Create a new customer
 func (r *PGRepository) Create(ctx context.Context, c *Customer) (*Customer, error) {
 	q := `
-        INSERT INTO customers (id, name, email, phone, kyc_status)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, email, phone, kyc_status, created_at, updated_at
-    `
+		INSERT INTO customers (id, name, email, phone)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, name, email, phone, created_at, updated_at;
+	`
 	c.ID = uuid.New()
-	row := r.pool.QueryRow(ctx, q, c.ID, c.Name, strings.ToLower(c.Email), c.Phone, string(c.KYCStatus))
+	row := r.pool.QueryRow(ctx, q, c.ID, c.Name, strings.ToLower(c.Email), c.Phone)
+
 	var out Customer
-	if err := row.Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.KYCStatus, &out.CreatedAt, &out.UpdatedAt); err != nil {
+	if err := row.Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return nil, ErrConflict
 		}
@@ -66,14 +91,15 @@ func (r *PGRepository) Create(ctx context.Context, c *Customer) (*Customer, erro
 	return &out, nil
 }
 
+// Get customer by ID
 func (r *PGRepository) Get(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	q := `
-        SELECT id, name, email, phone, kyc_status, created_at, updated_at
-        FROM customers
-        WHERE id = $1 AND deleted_at IS NULL
-    `
+		SELECT id, name, email, phone, created_at, updated_at
+		FROM customers
+		WHERE id = $1 AND deleted_at IS NULL;
+	`
 	var out Customer
-	err := r.pool.QueryRow(ctx, q, id).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.KYCStatus, &out.CreatedAt, &out.UpdatedAt)
+	err := r.pool.QueryRow(ctx, q, id).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -83,35 +109,24 @@ func (r *PGRepository) Get(ctx context.Context, id uuid.UUID) (*Customer, error)
 	return &out, nil
 }
 
-func (r *PGRepository) List(ctx context.Context, kyc *KYCStatus, offset, limit int) ([]Customer, int, error) {
-	baseWhere := "WHERE deleted_at IS NULL"
-	args := []any{}
-	if kyc != nil && kyc.Valid() {
-		baseWhere += " AND kyc_status = $1"
-		args = append(args, string(*kyc))
-	}
+// List customers with pagination
+func (r *PGRepository) List(ctx context.Context, offset, limit int) ([]Customer, int, error) {
+	countSQL := `SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL;`
 
-	countSQL := fmt.Sprintf(`SELECT count(*) FROM customers %s`, baseWhere)
 	var total int
-	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countSQL).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	// pagination
-	if kyc != nil && kyc.Valid() {
-		args = append(args, limit, offset)
-	} else {
-		args = append(args, limit, offset)
-	}
-	listSQL := fmt.Sprintf(`
-        SELECT id, name, email, phone, kyc_status, created_at, updated_at
-        FROM customers
-        %s
-        ORDER BY created_at DESC
-        LIMIT $%d OFFSET $%d
-    `, baseWhere, len(args)-1, len(args))
+	q := `
+		SELECT id, name, email, phone, created_at, updated_at
+		FROM customers
+		WHERE deleted_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2;
+	`
 
-	rows, err := r.pool.Query(ctx, listSQL, args...)
+	rows, err := r.pool.Query(ctx, q, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -120,17 +135,20 @@ func (r *PGRepository) List(ctx context.Context, kyc *KYCStatus, offset, limit i
 	var res []Customer
 	for rows.Next() {
 		var c Customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.KYCStatus, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		res = append(res, c)
 	}
+
 	if rows.Err() != nil {
 		return nil, 0, rows.Err()
 	}
+
 	return res, total, nil
 }
 
+// Update customer details
 func (r *PGRepository) Update(ctx context.Context, id uuid.UUID, upd UpdateCustomer) (*Customer, error) {
 	setParts := []string{}
 	args := []any{}
@@ -151,22 +169,22 @@ func (r *PGRepository) Update(ctx context.Context, id uuid.UUID, upd UpdateCusto
 		args = append(args, *upd.Phone)
 		argi++
 	}
-	setParts = append(setParts, fmt.Sprintf("updated_at = now()"))
+	setParts = append(setParts, "updated_at = now()")
 
 	if len(setParts) == 0 {
 		return r.Get(ctx, id) // nothing to update
 	}
 
 	q := fmt.Sprintf(`
-        UPDATE customers
-        SET %s
-        WHERE id = $%d AND deleted_at IS NULL
-        RETURNING id, name, email, phone, kyc_status, created_at, updated_at
-    `, strings.Join(setParts, ", "), argi)
+		UPDATE customers
+		SET %s
+		WHERE id = $%d AND deleted_at IS NULL
+		RETURNING id, name, email, phone, created_at, updated_at;
+	`, strings.Join(setParts, ", "), argi)
 	args = append(args, id)
 
 	var out Customer
-	err := r.pool.QueryRow(ctx, q, args...).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.KYCStatus, &out.CreatedAt, &out.UpdatedAt)
+	err := r.pool.QueryRow(ctx, q, args...).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -179,30 +197,13 @@ func (r *PGRepository) Update(ctx context.Context, id uuid.UUID, upd UpdateCusto
 	return &out, nil
 }
 
-func (r *PGRepository) UpdateKYC(ctx context.Context, id uuid.UUID, status KYCStatus) (*Customer, error) {
-	q := `
-        UPDATE customers
-        SET kyc_status = $2, updated_at = now()
-        WHERE id = $1 AND deleted_at IS NULL
-        RETURNING id, name, email, phone, kyc_status, created_at, updated_at
-    `
-	var out Customer
-	err := r.pool.QueryRow(ctx, q, id, string(status)).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.KYCStatus, &out.CreatedAt, &out.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &out, nil
-}
-
+// Soft delete (mark as deleted)
 func (r *PGRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	q := `
-        UPDATE customers
-        SET deleted_at = now(), updated_at = now()
-        WHERE id = $1 AND deleted_at IS NULL
-    `
+		UPDATE customers
+		SET deleted_at = now(), updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL;
+	`
 	ct, err := r.pool.Exec(ctx, q, id)
 	if err != nil {
 		return err
@@ -211,4 +212,49 @@ func (r *PGRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ----------------------------------------------------------------------
+// Verification operations
+// ----------------------------------------------------------------------
+
+// Create verification record
+func (r *PGRepository) CreateVerification(ctx context.Context, v *Verification) (*Verification, error) {
+	q := `
+		INSERT INTO verifications (customer_id, pan_number, status)
+		VALUES ($1, $2, $3)
+		RETURNING id, customer_id, pan_number, status, created_at, updated_at;
+	`
+	row := r.pool.QueryRow(ctx, q, v.CustomerID, v.PANNumber, v.Status)
+	err := row.Scan(&v.ID, &v.CustomerID, &v.PANNumber, &v.Status, &v.CreatedAt, &v.UpdatedAt)
+	return v, err
+}
+
+// Get verification by customer ID
+func (r *PGRepository) GetVerificationByCustomerID(ctx context.Context, cid uuid.UUID) (*Verification, error) {
+	q := `
+		SELECT id, customer_id, pan_number, status, created_at, updated_at
+		FROM verifications
+		WHERE customer_id=$1;
+	`
+	var v Verification
+	err := r.pool.QueryRow(ctx, q, cid).Scan(&v.ID, &v.CustomerID, &v.PANNumber, &v.Status, &v.CreatedAt, &v.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrVerificationNotFound
+		}
+		return nil, err
+	}
+	return &v, nil
+}
+
+// Update verification status
+func (r *PGRepository) UpdateVerificationStatus(ctx context.Context, cid uuid.UUID, status VerificationStatus) error {
+	q := `
+		UPDATE verifications
+		SET status=$2, updated_at=now()
+		WHERE customer_id=$1;
+	`
+	_, err := r.pool.Exec(ctx, q, cid, status)
+	return err
 }

@@ -25,10 +25,17 @@ func main() {
 	}
 	defer pool.Close()
 
-	repo := customer.NewPGRepository(pool)
-	svc := customer.NewService(repo)
+	// 🔹 Initialize repositories
+	customerRepo := customer.NewPGRepository(pool)
+	verificationRepo := customer.NewVerificationRepository(pool)
+
+	// 🔹 Create service (combined customer + verification logic)
+	svc := customer.NewService(customerRepo, verificationRepo)
+
+	// 🔹 Create router
 	router := httph.NewRouter(svc)
 
+	// 🔹 HTTP server config
 	srv := &http.Server{
 		Addr:              ":" + cfg.AppPort,
 		Handler:           router,
@@ -45,7 +52,7 @@ func main() {
 		}
 	}()
 
-	// graceful shutdown
+	// 🔹 Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

@@ -1,78 +1,80 @@
 package customer
 
 import (
-    "errors"
-    "net/mail"
-    "strings"
-    "time"
+	"errors"
+	"net/mail"
+	"strings"
+	"time"
 
-    "github.com/google/uuid"
+	"github.com/google/uuid"
 )
 
-type KYCStatus string
-
-const (
-    KYCStatusPending  KYCStatus = "PENDING"
-    KYCStatusVerified KYCStatus = "VERIFIED"
-    KYCStatusRejected KYCStatus = "REJECTED"
-)
-
-func (s KYCStatus) Valid() bool {
-    switch s {
-    case KYCStatusPending, KYCStatusVerified, KYCStatusRejected:
-        return true
-    default:
-        return false
-    }
-}
+// ------------------------------------------------------
+// Customer model
+// ------------------------------------------------------
 
 type Customer struct {
-    ID        uuid.UUID `json:"customer_id"`
-    Name      string    `json:"name"`
-    Email     string    `json:"email"`
-    Phone     string    `json:"phone"`
-    KYCStatus KYCStatus `json:"kyc_status"`
-    CreatedAt time.Time `json:"created_at"`
-    UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID `json:"customer_id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Phone     string    `json:"phone"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 var (
-    ErrInvalidEmail = errors.New("invalid email")
-    ErrInvalidName  = errors.New("invalid name")
-    ErrInvalidPhone = errors.New("invalid phone")
-    ErrInvalidKYC   = errors.New("invalid kyc status")
+	ErrInvalidEmail = errors.New("invalid email")
+	ErrInvalidName  = errors.New("invalid name")
+	ErrInvalidPhone = errors.New("invalid phone")
 )
 
+// ValidateForCreate ensures required fields are valid for customer creation.
 func (c *Customer) ValidateForCreate() error {
-    if strings.TrimSpace(c.Name) == "" {
-        return ErrInvalidName
-    }
-    if _, err := mail.ParseAddress(c.Email); err != nil {
-        return ErrInvalidEmail
-    }
-    if len(strings.TrimSpace(c.Phone)) < 6 {
-        return ErrInvalidPhone
-    }
-    if c.KYCStatus == "" {
-        c.KYCStatus = KYCStatusPending
-    }
-    if !c.KYCStatus.Valid() {
-        return ErrInvalidKYC
-    }
-    return nil
+	if strings.TrimSpace(c.Name) == "" {
+		return ErrInvalidName
+	}
+	if _, err := mail.ParseAddress(c.Email); err != nil {
+		return ErrInvalidEmail
+	}
+	if len(strings.TrimSpace(c.Phone)) < 6 {
+		return ErrInvalidPhone
+	}
+	return nil
 }
 
+// ValidateForUpdate ensures only valid data is updated.
 func (c *Customer) ValidateForUpdate() error {
-    if c.Name != "" && strings.TrimSpace(c.Name) == "" {
-        return ErrInvalidName
-    }
-    if c.Email != "" {
-        if _, err := mail.ParseAddress(c.Email); err != nil {
-            return ErrInvalidEmail
-        }
-    }
-    if c.Phone != "" && len(strings.TrimSpace(c.Phone)) < 6 {
-        return ErrInvalidPhone
-    }
-    return nil
+	if c.Name != "" && strings.TrimSpace(c.Name) == "" {
+		return ErrInvalidName
+	}
+	if c.Email != "" {
+		if _, err := mail.ParseAddress(c.Email); err != nil {
+			return ErrInvalidEmail
+		}
+	}
+	if c.Phone != "" && len(strings.TrimSpace(c.Phone)) < 6 {
+		return ErrInvalidPhone
+	}
+	return nil
+}
+
+// ------------------------------------------------------
+// Verification model (linked to customer)
+// ------------------------------------------------------
+
+type VerificationStatus string
+
+const (
+	StatusPending VerificationStatus = "PENDING"
+	StatusDone    VerificationStatus = "DONE"
+)
+
+// Verification table represents PAN/document verification records for customers.
+type Verification struct {
+	ID         uuid.UUID          `json:"id"`
+	CustomerID uuid.UUID          `json:"customer_id"`
+	PANNumber  string             `json:"pan_number"`
+	Status     VerificationStatus `json:"status"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
 }
