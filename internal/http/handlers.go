@@ -101,8 +101,8 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			"phone":            c.Phone,
 			"created_at":       c.CreatedAt,
 			"updated_at":       c.UpdatedAt,
-			"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
-			"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
+			"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
+			"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
@@ -145,15 +145,15 @@ func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 				"phone":            c.Phone,
 				"created_at":       c.CreatedAt,
 				"updated_at":       c.UpdatedAt,
-				"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
-				"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
+				"status_url":       fmt.Sprintf("v1/customers/%s/status", c.ID),
+				"verification_url": fmt.Sprintf("v1/customers/%s/verification", c.ID),
 			})
 		}
 		resp := map[string]any{
 			"page":  page,
 			"limit": limit,
 			"total": total,
-			"data":  out,
+			"data":  items,
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
