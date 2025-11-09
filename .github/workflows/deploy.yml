@@ -1,65 +1,115 @@
-name: Deploy to EC2 with Docker
+name: Deploy to Kubernetes
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NAMESPACE: customer-service
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t customer-service:latest .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Save Docker image to tar
-        run: docker save customer-service:latest -o customer-service.tar
-
-      - name: Archive SQL migrations
-        run: tar -czf migrations.tar.gz migrations
-
-      - name: Fix permissions
-        run: chmod 644 customer-service.tar migrations.tar.gz
-
-      - name: Copy image to EC2
-        uses: appleboy/scp-action@v0.1.7
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          source: "customer-service.tar,migrations.tar.gz"
-          target: "/home/${{ secrets.EC2_USER }}/customer-service"
-          strip_components: 0
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: SSH into EC2 and deploy container
-        uses: appleboy/ssh-action@v1.1.0
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            set -euo pipefail
-            WORKDIR="/home/${{ secrets.EC2_USER }}/customer-service"
-            mkdir -p "$WORKDIR"
-            cd "$WORKDIR"
-            docker load -i customer-service.tar
-            rm -rf migrations
-            tar -xzf migrations.tar.gz
-            docker pull postgres:16-alpine
-            docker run --rm --network host \
-              -v "$WORKDIR/migrations:/migrations:ro" postgres:16-alpine \
-              sh -c "set -euo pipefail; for file in \$(find /migrations -maxdepth 1 -type f -name '*.sql' | sort); do echo \"Applying migration \$file\"; psql \"host=${{ secrets.DB_HOST }} port=${{ secrets.DB_PORT }} user=${{ secrets.DB_USER }} password=${{ secrets.DB_PASSWORD }} dbname=${{ secrets.DB_NAME }} sslmode=${{ secrets.DB_SSLMODE }}\" -f \"\$file\"; done"
-            docker stop customer-service || true
-            docker rm customer-service || true
-            docker run -d --name customer-service -p 8080:8080 --restart unless-stopped \
-              -e DB_HOST='${{ secrets.DB_HOST }}' \
-              -e DB_PORT='${{ secrets.DB_PORT }}' \
-              -e DB_USER='${{ secrets.DB_USER }}' \
-              -e DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
-              -e DB_NAME='${{ secrets.DB_NAME }}' \
-              -e DB_SSLMODE='${{ secrets.DB_SSLMODE }}' \
-              customer-service:latest
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+      - name: Create namespace
+        run: kubectl apply -f deploy/minikube/00-namespace.yaml
+
+      - name: Create image pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-credentials \
+            --namespace ${{ env.NAMESPACE }} \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username='${{ secrets.GHCR_USERNAME }}' \
+            --docker-password='${{ secrets.GHCR_TOKEN }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+      - name: Attach image pull secret to default service account
+        run: |
+          kubectl patch serviceaccount default \
+            --namespace ${{ env.NAMESPACE }} \
+            --type merge \
+            -p '{"imagePullSecrets":[{"name":"ghcr-credentials"}]}'
+      - name: Create database credentials secret
+        run: |
+          kubectl create secret generic customer-service-db-secret \
+            --namespace ${{ env.NAMESPACE }} \
+            --from-literal=DB_USER='${{ secrets.DB_USER }}' \
+            --from-literal=DB_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+            --from-literal=POSTGRES_USER='${{ secrets.DB_USER }}' \
+            --from-literal=POSTGRES_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+      - name: Apply config map and services
+        run: |
+          kubectl apply -f deploy/minikube/configmap.yaml
+          kubectl apply -f deploy/minikube/postgres.yaml
+          kubectl apply -f deploy/minikube/service.yaml
+          kubectl apply -f deploy/minikube/deployment.yaml
+          kubectl apply -f deploy/minikube/ingress.yaml
+      - name: Wait for database rollout
+        run: kubectl rollout status deployment/postgres -n ${{ env.NAMESPACE }} --timeout=180s
+
+      - name: Run database migrations
+        run: |
+          set -euo pipefail
+          POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+          for file in $(find migrations -maxdepth 1 -type f -name '*.sql' | sort); do
+            base=$(basename "$file")
+            kubectl cp "$file" "${{ env.NAMESPACE }}/$POD:/tmp/$base"
+            kubectl exec -n ${{ env.NAMESPACE }} "$POD" -- env PGPASSWORD='${{ secrets.DB_PASSWORD }}' \
+              psql --host=localhost --username='${{ secrets.DB_USER }}' --dbname='customerdb' --file="/tmp/$base"
+          done
+      - name: Update deployment image
+        run: |
+          kubectl set image deployment/customer-service customer-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --namespace ${{ env.NAMESPACE }}
+      - name: Wait for service rollout
+        run: kubectl rollout status deployment/customer-service -n ${{ env.NAMESPACE }} --timeout=300s
+
+      - name: Show cluster resources
+        run: |
+          kubectl get pods -n ${{ env.NAMESPACE }}
+          kubectl get svc -n ${{ env.NAMESPACE }}
+          kubectl get ingress -n ${{ env.NAMESPACE }}
