@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: customer-service
+type: Opaque
+stringData:
+  admin-user: admin
+  admin-password: admin123
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: customer-service
+  labels:
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.customer-service.svc.cluster.local:3100
+        isDefault: true
+        uid: loki
+        jsonData:
+          maxLines: 1000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: customer-service
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: Default
+        orgId: 1
+        folder: Logs
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: customer-service
+data:
+  logs-overview.json: |
+    {
+      "title": "Customer Service Logs",
+      "schemaVersion": 37,
+      "version": 1,
+      "panels": [
+        {
+          "type": "logs",
+          "title": "All logs",
+          "targets": [
+            {
+              "expr": "{namespace=\"customer-service\"}",
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              }
+            }
+          ],
+          "gridPos": {
+            "h": 20,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: customer-service
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.1.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-password
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: publicDashboards
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: customer-service
+  labels:
+    app: grafana
+spec:
+  type: LoadBalancer
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
