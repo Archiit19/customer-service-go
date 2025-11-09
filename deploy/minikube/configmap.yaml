@@ -5,6 +5,7 @@ metadata:
   namespace: customer-service
 data:
   APP_PORT: "8080"
+  LOG_LEVEL: "INFO"
   DB_HOST: "postgres.customer-service.svc.cluster.local"
   DB_PORT: "5432"
   DB_NAME: "customerdb"

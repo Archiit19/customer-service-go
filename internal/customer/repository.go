@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Archiit19/customer-service-go/internal/logger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -34,11 +35,12 @@ type Repository interface {
 }
 
 type PGRepository struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	logger logger.Logger
 }
 
-func NewPGRepository(pool *pgxpool.Pool) *PGRepository {
-	return &PGRepository{pool: pool}
+func NewPGRepository(pool *pgxpool.Pool, log logger.Logger) *PGRepository {
+	return &PGRepository{pool: pool, logger: log}
 }
 
 type UpdateCustomer struct {
@@ -58,45 +60,50 @@ func isUniqueViolation(err error) bool {
 
 // Create a new customer
 func (r *PGRepository) Create(ctx context.Context, c *Customer) (*Customer, error) {
+	r.logger.Info(ctx, "creating customer", logger.String("email", strings.ToLower(c.Email)), logger.String("phone", c.Phone))
 	c.ID = uuid.New()
 	q := `
-		INSERT INTO customers (id, name, email, phone)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, email, phone, created_at, updated_at;
-	`
+INSERT INTO customers (id, name, email, phone)
+VALUES ($1, $2, $3, $4)
+RETURNING id, name, email, phone, created_at, updated_at;
+`
 	row := r.pool.QueryRow(ctx, q, c.ID, c.Name, strings.ToLower(c.Email), c.Phone)
 	var out Customer
 	if err := row.Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt); err != nil {
 		if isUniqueViolation(err) {
+			r.logger.Warn(ctx, "customer create conflict", logger.Err(err), logger.String("email", strings.ToLower(c.Email)), logger.String("phone", c.Phone))
 			return nil, ErrConflict
 		}
+		r.logger.Error(ctx, "customer create query failed", logger.Err(err))
 		return nil, err
 	}
 
-	//  create corresponding verification record
+	// create corresponding verification record
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO verifications (customer_id, status, pan_number) VALUES ($1, 'NOT_FOUND', NULL);`,
 		out.ID,
 	)
 	if err != nil {
+		r.logger.Error(ctx, "verification bootstrap failed", logger.Err(err), logger.String("customer_id", out.ID.String()))
 		return nil, fmt.Errorf("failed to create verification: %w", err)
 	}
 
 	out.Status = "NOT_FOUND"
 	out.PANNumber = nil
+	r.logger.Info(ctx, "customer created", logger.String("customer_id", out.ID.String()))
 	return &out, nil
 }
 
 // Get customer by ID
 func (r *PGRepository) Get(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	q := `
-		SELECT c.id, c.name, c.email, c.phone,
-		       v.pan_number, v.status,
-		       c.created_at, c.updated_at
-		FROM customers c
-		LEFT JOIN verifications v ON v.customer_id = c.id
-		WHERE c.id = $1 AND c.deleted_at IS NULL;
-	`
+SELECT c.id, c.name, c.email, c.phone,
+       v.pan_number, v.status,
+       c.created_at, c.updated_at
+FROM customers c
+LEFT JOIN verifications v ON v.customer_id = c.id
+WHERE c.id = $1 AND c.deleted_at IS NULL;
+`
 	var c Customer
 	err := r.pool.QueryRow(ctx, q, id).Scan(
 		&c.ID, &c.Name, &c.Email, &c.Phone,
@@ -104,7 +111,14 @@ func (r *PGRepository) Get(ctx context.Context, id uuid.UUID) (*Customer, error)
 		&c.CreatedAt, &c.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
+		r.logger.Warn(ctx, "customer not found", logger.String("customer_id", id.String()))
 		return nil, ErrNotFound
+	}
+	if err != nil {
+		r.logger.Error(ctx, "customer query failed", logger.Err(err), logger.String("customer_id", id.String()))
+	}
+	if err == nil {
+		r.logger.Debug(ctx, "customer fetched", logger.String("customer_id", c.ID.String()))
 	}
 	return &c, err
 }
@@ -114,21 +128,23 @@ func (r *PGRepository) List(ctx context.Context, offset, limit int) ([]Customer,
 	countSQL := `SELECT COUNT(*) FROM customers WHERE deleted_at IS NULL;`
 	var total int
 	if err := r.pool.QueryRow(ctx, countSQL).Scan(&total); err != nil {
+		r.logger.Error(ctx, "customer count query failed", logger.Err(err))
 		return nil, 0, err
 	}
 
 	q := `
-		SELECT c.id, c.name, c.email, c.phone,
-		       v.pan_number, v.status,
-		       c.created_at, c.updated_at
-		FROM customers c
-		LEFT JOIN verifications v ON v.customer_id = c.id
-		WHERE c.deleted_at IS NULL
-		ORDER BY c.created_at DESC
-		LIMIT $1 OFFSET $2;
-	`
+SELECT c.id, c.name, c.email, c.phone,
+       v.pan_number, v.status,
+       c.created_at, c.updated_at
+FROM customers c
+LEFT JOIN verifications v ON v.customer_id = c.id
+WHERE c.deleted_at IS NULL
+ORDER BY c.created_at DESC
+LIMIT $1 OFFSET $2;
+`
 	rows, err := r.pool.Query(ctx, q, limit, offset)
 	if err != nil {
+		r.logger.Error(ctx, "customer list query failed", logger.Err(err), logger.Int("limit", limit), logger.Int("offset", offset))
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -141,10 +157,12 @@ func (r *PGRepository) List(ctx context.Context, offset, limit int) ([]Customer,
 			&c.PANNumber, &c.Status,
 			&c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
+			r.logger.Error(ctx, "customer row scan failed", logger.Err(err))
 			return nil, 0, err
 		}
 		res = append(res, c)
 	}
+	r.logger.Info(ctx, "customers listed", logger.Int("count", len(res)), logger.Int("limit", limit), logger.Int("offset", offset), logger.Int("total", total))
 	return res, total, nil
 }
 
@@ -172,11 +190,12 @@ func (r *PGRepository) Update(ctx context.Context, id uuid.UUID, upd UpdateCusto
 	setParts = append(setParts, "updated_at = now()")
 
 	if len(setParts) == 0 {
+		r.logger.Info(ctx, "customer update skipped", logger.String("customer_id", id.String()))
 		return r.Get(ctx, id) // nothing to update
 	}
 
 	q := fmt.Sprintf(`
-		UPDATE customers
+UPDATE customers
 		SET %s
 		WHERE id = $%d AND deleted_at IS NULL
 		RETURNING id, name, email, phone, created_at, updated_at;
@@ -187,13 +206,17 @@ func (r *PGRepository) Update(ctx context.Context, id uuid.UUID, upd UpdateCusto
 	err := r.pool.QueryRow(ctx, q, args...).Scan(&out.ID, &out.Name, &out.Email, &out.Phone, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			r.logger.Warn(ctx, "customer update target missing", logger.String("customer_id", id.String()))
 			return nil, ErrNotFound
 		}
 		if isUniqueViolation(err) {
+			r.logger.Warn(ctx, "customer update conflict", logger.Err(err), logger.String("customer_id", id.String()))
 			return nil, ErrConflict
 		}
+		r.logger.Error(ctx, "customer update failed", logger.Err(err), logger.String("customer_id", id.String()))
 		return nil, err
 	}
+	r.logger.Info(ctx, "customer updated", logger.String("customer_id", out.ID.String()))
 	return &out, nil
 }
 
@@ -206,11 +229,14 @@ func (r *PGRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	`
 	ct, err := r.pool.Exec(ctx, q, id)
 	if err != nil {
+		r.logger.Error(ctx, "customer soft delete failed", logger.Err(err), logger.String("customer_id", id.String()))
 		return err
 	}
 	if ct.RowsAffected() == 0 {
+		r.logger.Warn(ctx, "customer soft delete target missing", logger.String("customer_id", id.String()))
 		return ErrNotFound
 	}
+	r.logger.Info(ctx, "customer soft deleted", logger.String("customer_id", id.String()))
 	return nil
 }
 
@@ -223,6 +249,11 @@ func (r *PGRepository) CreateVerification(ctx context.Context, v *Verification) 
 	`
 	row := r.pool.QueryRow(ctx, q, v.CustomerID, v.PANNumber, v.Status)
 	err := row.Scan(&v.ID, &v.CustomerID, &v.PANNumber, &v.Status, &v.CreatedAt, &v.UpdatedAt)
+	if err != nil {
+		r.logger.Error(ctx, "verification create failed", logger.Err(err), logger.String("customer_id", v.CustomerID.String()))
+		return nil, err
+	}
+	r.logger.Info(ctx, "verification created", logger.String("verification_id", v.ID.String()), logger.String("customer_id", v.CustomerID.String()))
 	return v, err
 }
 
@@ -237,20 +268,28 @@ func (r *PGRepository) GetVerificationByCustomerID(ctx context.Context, cid uuid
 	err := r.pool.QueryRow(ctx, q, cid).Scan(&v.ID, &v.CustomerID, &v.PANNumber, &v.Status, &v.CreatedAt, &v.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			r.logger.Warn(ctx, "verification not found", logger.String("customer_id", cid.String()))
 			return nil, ErrVerificationNotFound
 		}
+		r.logger.Error(ctx, "verification query failed", logger.Err(err), logger.String("customer_id", cid.String()))
 		return nil, err
 	}
+	r.logger.Debug(ctx, "verification fetched", logger.String("verification_id", v.ID.String()), logger.String("customer_id", cid.String()))
 	return &v, nil
 }
 
 // UpdateVerificationStatus updates the verification status
 func (r *PGRepository) UpdateVerificationStatus(ctx context.Context, cid uuid.UUID, status VerificationStatus) error {
 	q := `
-		UPDATE verifications
-		SET status=$2, updated_at=now()
-		WHERE customer_id=$1;
-	`
+UPDATE verifications
+SET status=$2, updated_at=now()
+WHERE customer_id=$1;
+`
 	_, err := r.pool.Exec(ctx, q, cid, status)
-	return err
+	if err != nil {
+		r.logger.Error(ctx, "verification status update failed", logger.Err(err), logger.String("customer_id", cid.String()), logger.String("status", string(status)))
+		return err
+	}
+	r.logger.Info(ctx, "verification status updated", logger.String("customer_id", cid.String()), logger.String("status", string(status)))
+	return nil
 }

@@ -7,9 +7,15 @@ import (
 	"net/http"
 
 	"github.com/Archiit19/customer-service-go/internal/customer"
+	"github.com/Archiit19/customer-service-go/internal/logger"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+type Handler struct {
+	svc    *customer.Service
+	logger logger.Logger
+}
 
 type createCustomerRequest struct {
 	Name  string `json:"name"`
@@ -17,79 +23,123 @@ type createCustomerRequest struct {
 	Phone string `json:"phone"`
 }
 
-func createCustomerHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req createCustomerRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-
-		c := &customer.Customer{
-			Name:  req.Name,
-			Email: req.Email,
-			Phone: req.Phone,
-		}
-
-		created, err := svc.Create(r.Context(), c)
-		if err != nil {
-			switch {
-			case errors.Is(err, customer.ErrInvalidEmail),
-				errors.Is(err, customer.ErrInvalidName),
-				errors.Is(err, customer.ErrInvalidPhone):
-				writeError(w, http.StatusBadRequest, err.Error())
-			case errors.Is(err, customer.ErrConflict):
-				writeError(w, http.StatusConflict, err.Error())
-			default:
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
-
-		resp := map[string]any{
-			"customer_id":      created.ID,
-			"name":             created.Name,
-			"email":            created.Email,
-			"phone":            created.Phone,
-			"created_at":       created.CreatedAt,
-			"updated_at":       created.UpdatedAt,
-			"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
-			"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
-		}
-		writeJSON(w, http.StatusCreated, resp)
-	}
+type patchCustomerRequest struct {
+	Name  *string `json:"name,omitempty"`
+	Email *string `json:"email,omitempty"`
+	Phone *string `json:"phone,omitempty"`
 }
 
-func getScheme(r *http.Request) string {
-	if r.TLS != nil {
-		return "https"
-	}
-	if s := r.Header.Get("X-Forwarded-Proto"); s != "" {
-		return s
-	}
-	return "http"
+func NewHandler(svc *customer.Service, log logger.Logger) *Handler {
+	return &Handler{svc: svc, logger: log}
 }
 
-// GET /v1/customers/{id}
-func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid id")
-			return
+func (h *Handler) CreateCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	h.logger.Info(ctx, "http create customer received")
+	var req createCustomerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn(ctx, "http create customer decode failed", logger.Err(err))
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	c := &customer.Customer{
+		Name:  req.Name,
+		Email: req.Email,
+		Phone: req.Phone,
+	}
+	created, err := h.svc.Create(ctx, c)
+	if err != nil {
+		switch {
+		case errors.Is(err, customer.ErrInvalidEmail), errors.Is(err, customer.ErrInvalidName), errors.Is(err, customer.ErrInvalidPhone):
+			h.logger.Warn(ctx, "http create customer validation failed", logger.Err(err))
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, customer.ErrConflict):
+			h.logger.Warn(ctx, "http create customer conflict", logger.Err(err))
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			h.logger.Error(ctx, "http create customer internal failure", logger.Err(err))
+			writeError(w, http.StatusInternalServerError, "internal error")
 		}
-		c, err := svc.Get(r.Context(), id)
-		if err != nil {
-			if errors.Is(err, customer.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not found")
-			} else {
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
+		return
+	}
+	resp := map[string]any{
+		"customer_id":      created.ID,
+		"name":             created.Name,
+		"email":            created.Email,
+		"phone":            created.Phone,
+		"created_at":       created.CreatedAt,
+		"updated_at":       created.UpdatedAt,
+		"status_url":       fmt.Sprintf("/v1/customers/%s/status", created.ID),
+		"verification_url": fmt.Sprintf("/v1/customers/%s/verification", created.ID),
+	}
+	h.logger.Info(ctx, "http create customer succeeded", logger.String("customer_id", created.ID.String()))
+	writeJSON(w, http.StatusCreated, resp)
+}
 
-		resp := map[string]any{
+func (h *Handler) GetCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	h.logger.Info(ctx, "http get customer received", logger.String("customer_id", idStr))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.logger.Warn(ctx, "http get customer invalid id", logger.Err(err), logger.String("customer_id", idStr))
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	cust, err := h.svc.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, customer.ErrNotFound) {
+			h.logger.Warn(ctx, "http get customer not found", logger.String("customer_id", idStr))
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.logger.Error(ctx, "http get customer internal failure", logger.Err(err), logger.String("customer_id", idStr))
+			writeError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+	resp := map[string]any{
+		"customer_id":      cust.ID,
+		"name":             cust.Name,
+		"email":            cust.Email,
+		"phone":            cust.Phone,
+		"created_at":       cust.CreatedAt,
+		"updated_at":       cust.UpdatedAt,
+		"status_url":       fmt.Sprintf("/v1/customers/%s/status", cust.ID),
+		"verification_url": fmt.Sprintf("/v1/customers/%s/verification", cust.ID),
+	}
+	h.logger.Info(ctx, "http get customer succeeded", logger.String("customer_id", cust.ID.String()))
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) ListCustomers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	page := 1
+	limit := 20
+	if v := q.Get("page"); v != "" {
+		if _, err := fmtSscanf(v, &page); err != nil || page < 1 {
+			h.logger.Warn(ctx, "http list customers invalid page", logger.String("page", v))
+			writeError(w, http.StatusBadRequest, "invalid page")
+			return
+		}
+	}
+	if v := q.Get("limit"); v != "" {
+		if _, err := fmtSscanf(v, &limit); err != nil || limit < 1 {
+			h.logger.Warn(ctx, "http list customers invalid limit", logger.String("limit", v))
+			writeError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+	}
+	h.logger.Info(ctx, "http list customers received", logger.Int("page", page), logger.Int("limit", limit))
+	items, total, err := h.svc.List(ctx, page, limit)
+	if err != nil {
+		h.logger.Error(ctx, "http list customers internal failure", logger.Err(err))
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	var out []map[string]any
+	for _, c := range items {
+		out = append(out, map[string]any{
 			"customer_id":      c.ID,
 			"name":             c.Name,
 			"email":            c.Email,
@@ -98,58 +148,127 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 			"updated_at":       c.UpdatedAt,
 			"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
 			"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
-		}
-		writeJSON(w, http.StatusOK, resp)
+		})
 	}
+	resp := map[string]any{
+		"page":  page,
+		"limit": limit,
+		"total": total,
+		"data":  out,
+	}
+	h.logger.Info(ctx, "http list customers succeeded", logger.Int("returned", len(out)), logger.Int("total", total))
+	writeJSON(w, http.StatusOK, resp)
 }
 
-// GET /v1/customers?status=&page=&limit=
-func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-
-		page := 1
-		limit := 20
-
-		if v := q.Get("page"); v != "" {
-			if _, err := fmtSscanf(v, &page); err != nil || page < 1 {
-				writeError(w, http.StatusBadRequest, "invalid page")
-				return
-			}
-		}
-		if v := q.Get("limit"); v != "" {
-			if _, err := fmtSscanf(v, &limit); err != nil || limit < 1 {
-				writeError(w, http.StatusBadRequest, "invalid limit")
-				return
-			}
-		}
-
-		items, total, err := svc.List(r.Context(), page, limit)
-		if err != nil {
+func (h *Handler) PatchCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	h.logger.Info(ctx, "http patch customer received", logger.String("customer_id", idStr))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.logger.Warn(ctx, "http patch customer invalid id", logger.Err(err), logger.String("customer_id", idStr))
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req patchCustomerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.Warn(ctx, "http patch customer decode failed", logger.Err(err))
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	updated, err := h.svc.Update(ctx, id, req.Name, req.Email, req.Phone)
+	if err != nil {
+		if errors.Is(err, customer.ErrNotFound) {
+			h.logger.Warn(ctx, "http patch customer not found", logger.String("customer_id", idStr))
+			writeError(w, http.StatusNotFound, "not found")
+		} else if errors.Is(err, customer.ErrConflict) {
+			h.logger.Warn(ctx, "http patch customer conflict", logger.Err(err), logger.String("customer_id", idStr))
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			h.logger.Error(ctx, "http patch customer internal failure", logger.Err(err), logger.String("customer_id", idStr))
 			writeError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+	h.logger.Info(ctx, "http patch customer succeeded", logger.String("customer_id", updated.ID.String()))
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *Handler) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := chi.URLParam(r, "id")
+	h.logger.Info(ctx, "http delete customer received", logger.String("customer_id", idStr))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		h.logger.Warn(ctx, "http delete customer invalid id", logger.Err(err), logger.String("customer_id", idStr))
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.svc.SoftDelete(ctx, id); err != nil {
+		if errors.Is(err, customer.ErrNotFound) {
+			h.logger.Warn(ctx, "http delete customer not found", logger.String("customer_id", idStr))
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			h.logger.Error(ctx, "http delete customer internal failure", logger.Err(err), logger.String("customer_id", idStr))
+			writeError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+	h.logger.Info(ctx, "http delete customer succeeded", logger.String("customer_id", idStr))
+	writeJSON(w, http.StatusNoContent, nil)
+}
+
+func (h *Handler) GetCustomerKYCStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	h.logger.Info(ctx, "http get verification status received", logger.String("customer_id", id))
+	verification, err := h.svc.GetVerificationByCustomerID(ctx, id)
+	if err != nil {
+		h.logger.Warn(ctx, "http get verification status failed", logger.Err(err), logger.String("customer_id", id))
+		writeError(w, http.StatusNotFound, "verification record not found")
+		return
+	}
+	h.logger.Info(ctx, "http get verification status succeeded", logger.String("customer_id", id))
+	writeJSON(w, http.StatusOK, verification)
+}
+
+func (h *Handler) UpdateKYC(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	h.logger.Info(ctx, "http update verification received", logger.String("customer_id", id))
+	var payload struct {
+		PAN    string `json:"pan_number,omitempty"`
+		Status string `json:"status,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		h.logger.Warn(ctx, "http update verification decode failed", logger.Err(err))
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if payload.PAN != "" {
+		verification, err := h.svc.CreateVerification(ctx, id, payload.PAN)
+		if err != nil {
+			h.logger.Error(ctx, "http create verification failed", logger.Err(err), logger.String("customer_id", id))
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		var out []map[string]any
-		for _, c := range items {
-			out = append(out, map[string]any{
-				"customer_id":      c.ID,
-				"name":             c.Name,
-				"email":            c.Email,
-				"phone":            c.Phone,
-				"created_at":       c.CreatedAt,
-				"updated_at":       c.UpdatedAt,
-				"status_url":       fmt.Sprintf("/v1/customers/%s/status", c.ID),
-				"verification_url": fmt.Sprintf("/v1/customers/%s/verification", c.ID),
-			})
-		}
-		resp := map[string]any{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-			"data":  out,
-		}
-		writeJSON(w, http.StatusOK, resp)
+		h.logger.Info(ctx, "http create verification succeeded", logger.String("verification_id", verification.ID.String()), logger.String("customer_id", id))
+		writeJSON(w, http.StatusCreated, verification)
+		return
 	}
+	if payload.Status != "" {
+		verification, err := h.svc.UpdateVerificationStatus(ctx, id, payload.Status)
+		if err != nil {
+			h.logger.Error(ctx, "http update verification status failed", logger.Err(err), logger.String("customer_id", id), logger.String("status", payload.Status))
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		h.logger.Info(ctx, "http update verification status succeeded", logger.String("verification_id", verification.ID.String()), logger.String("customer_id", id), logger.String("status", payload.Status))
+		writeJSON(w, http.StatusOK, verification)
+		return
+	}
+	h.logger.Warn(ctx, "http update verification nothing to update", logger.String("customer_id", id))
+	writeError(w, http.StatusBadRequest, "nothing to update")
 }
 
 func fmtSscanf(s string, dst *int) (int, error) {
@@ -164,108 +283,12 @@ func fmtSscanf(s string, dst *int) (int, error) {
 	return 1, nil
 }
 
-type patchCustomerRequest struct {
-	Name  *string `json:"name,omitempty"`
-	Email *string `json:"email,omitempty"`
-	Phone *string `json:"phone,omitempty"`
-}
-
-func patchCustomerHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid id")
-			return
-		}
-
-		var req patchCustomerRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-
-		updated, err := svc.Update(r.Context(), id, req.Name, req.Email, req.Phone)
-		if err != nil {
-			if errors.Is(err, customer.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not found")
-			} else {
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
-		writeJSON(w, http.StatusOK, updated)
+func getScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
 	}
-}
-
-// GET /v1/customers/{id}/status
-func getCustomerKYCStatusHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		verification, err := svc.GetVerificationByCustomerID(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "verification record not found")
-			return
-		}
-		writeJSON(w, http.StatusOK, verification)
+	if s := r.Header.Get("X-Forwarded-Proto"); s != "" {
+		return s
 	}
-}
-
-// PATCH /v1/customers/{id}/verification
-func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		var payload struct {
-			PAN    string `json:"pan_number,omitempty"`
-			Status string `json:"status,omitempty"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON body")
-			return
-		}
-
-		if payload.PAN != "" {
-			v, err := svc.CreateVerification(r.Context(), id, payload.PAN)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusCreated, v)
-			return
-		}
-
-		if payload.Status != "" {
-			v, err := svc.UpdateVerificationStatus(r.Context(), id, payload.Status)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, v)
-			return
-		}
-
-		writeError(w, http.StatusBadRequest, "nothing to update")
-	}
-}
-
-// DELETE /v1/customers/{id}
-func deleteCustomerHandler(svc *customer.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid id")
-			return
-		}
-		if err := svc.SoftDelete(r.Context(), id); err != nil {
-			if errors.Is(err, customer.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not found")
-			} else {
-				writeError(w, http.StatusInternalServerError, "internal error")
-			}
-			return
-		}
-		writeJSON(w, http.StatusNoContent, nil)
-	}
+	return "http"
 }

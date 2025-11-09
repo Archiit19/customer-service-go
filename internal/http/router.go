@@ -5,41 +5,34 @@ import (
 	"time"
 
 	"github.com/Archiit19/customer-service-go/internal/customer"
+	"github.com/Archiit19/customer-service-go/internal/logger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 // NewRouter configures all routes
-func NewRouter(svc *customer.Service) http.Handler {
+func NewRouter(svc *customer.Service, log logger.Logger) http.Handler {
 	r := chi.NewRouter()
 
-	// Basic middlewares
 	r.Use(
 		middleware.RequestID,
 		middleware.RealIP,
-		middleware.Logger,
-		middleware.Recoverer,
+		WithRequestContext(log),
+		Recovery(log),
 		middleware.Timeout(60*time.Second),
 	)
 
-	// Health check
+	h := NewHandler(svc, log)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		log.Info(r.Context(), "health check")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
-
-	r.Post("/v1/customers", createCustomerHandler(svc))
-
-	r.Delete("/v1/customers/{id}", deleteCustomerHandler(svc))
-
-	r.Patch("/v1/customers/{id}", patchCustomerHandler(svc))
-
-	r.Get("/v1/customers", listCustomersHandler(svc))
-
-	r.Get("/v1/customers/{id}", getCustomerHandler(svc))
-
-	r.Get("/v1/customers/{id}/status", getCustomerKYCStatusHandler(svc))
-
-	r.Patch("/v1/customers/{id}/verification", updateKYCHandler(svc))
-
+	r.Post("/v1/customers", h.CreateCustomer)
+	r.Delete("/v1/customers/{id}", h.DeleteCustomer)
+	r.Patch("/v1/customers/{id}", h.PatchCustomer)
+	r.Get("/v1/customers", h.ListCustomers)
+	r.Get("/v1/customers/{id}", h.GetCustomer)
+	r.Get("/v1/customers/{id}/status", h.GetCustomerKYCStatus)
+	r.Patch("/v1/customers/{id}/verification", h.UpdateKYC)
 	return r
 }
