@@ -19,8 +19,11 @@ jobs:
       - name: Save Docker image to tar
         run: docker save customer-service:latest -o customer-service.tar
 
+      - name: Archive SQL migrations
+        run: tar -czf migrations.tar.gz migrations
+
       - name: Fix permissions
-        run: chmod 644 customer-service.tar
+        run: chmod 644 customer-service.tar migrations.tar.gz
 
       - name: Copy image to EC2
         uses: appleboy/scp-action@v0.1.7
@@ -28,8 +31,9 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
-          source: "customer-service.tar"
-          target: "/home/${{ secrets.EC2_USER }}/"
+          source: "customer-service.tar,migrations.tar.gz"
+          target: "/home/${{ secrets.EC2_USER }}/customer-service"
+          strip_components: 0
 
       - name: SSH into EC2 and deploy container
         uses: appleboy/ssh-action@v1.1.0
@@ -38,10 +42,20 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
           script: |
+            set -euo pipefail
+            WORKDIR="/home/${{ secrets.EC2_USER }}/customer-service"
+            mkdir -p "$WORKDIR"
+            cd "$WORKDIR"
             docker load -i customer-service.tar
+            rm -rf migrations
+            tar -xzf migrations.tar.gz
+            docker pull postgres:16-alpine
+            docker run --rm --network host \
+              -v "$WORKDIR/migrations:/migrations:ro" postgres:16-alpine \
+              sh -c "set -euo pipefail; for file in \$(find /migrations -maxdepth 1 -type f -name '*.sql' | sort); do echo \"Applying migration \$file\"; psql \"host=${{ secrets.DB_HOST }} port=${{ secrets.DB_PORT }} user=${{ secrets.DB_USER }} password=${{ secrets.DB_PASSWORD }} dbname=${{ secrets.DB_NAME }} sslmode=${{ secrets.DB_SSLMODE }}\" -f \"\$file\"; done"
             docker stop customer-service || true
             docker rm customer-service || true
-            docker run -d --name customer-service -p 8080:8080 \
+            docker run -d --name customer-service -p 8080:8080 --restart unless-stopped \
               -e DB_HOST='${{ secrets.DB_HOST }}' \
               -e DB_PORT='${{ secrets.DB_PORT }}' \
               -e DB_USER='${{ secrets.DB_USER }}' \

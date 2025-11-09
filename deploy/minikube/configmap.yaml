@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: customer-service-config
+  namespace: customer-service
+data:
+  APP_PORT: "8080"
+  DB_HOST: "postgres.customer-service.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "customerdb"
+  DB_SSLMODE: "disable"
+  DB_MAX_CONNS: "10"
+  DB_MIN_CONNS: "2"
+  DB_MAX_IDLE_TIME: "30m"
