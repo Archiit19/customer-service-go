@@ -19,10 +19,6 @@ func NewService(repo *PGRepository) *Service {
 	}
 }
 
-// -------------------------
-// Customer operations
-// -------------------------
-
 func (s *Service) Create(ctx context.Context, c *Customer) (*Customer, error) {
 	if err := c.ValidateForCreate(); err != nil {
 		return nil, err
@@ -57,10 +53,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, name, email, phone *
 func (s *Service) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	return s.customerRepo.SoftDelete(ctx, id)
 }
-
-// -------------------------
-// Verification operations
-// -------------------------
 
 func (s *Service) CreateVerification(ctx context.Context, customerID, pan string) (*Verification, error) {
 	cid, err := uuid.Parse(customerID)

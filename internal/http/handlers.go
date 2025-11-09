@@ -11,9 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// -------------------------------
-// POST /v1/customers
-// -------------------------------
 type createCustomerRequest struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
@@ -73,9 +70,7 @@ func getScheme(r *http.Request) string {
 	return "http"
 }
 
-// -------------------------------
 // GET /v1/customers/{id}
-// -------------------------------
 func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
@@ -108,9 +103,7 @@ func getCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// -------------------------------
 // GET /v1/customers?status=&page=&limit=
-// -------------------------------
 func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -159,9 +152,6 @@ func listCustomersHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// -------------------------------
-// helper: parse integer safely
-// -------------------------------
 func fmtSscanf(s string, dst *int) (int, error) {
 	var n int
 	for i := 0; i < len(s); i++ {
@@ -174,9 +164,6 @@ func fmtSscanf(s string, dst *int) (int, error) {
 	return 1, nil
 }
 
-// -------------------------------
-// PATCH /v1/customers/{id}
-// -------------------------------
 type patchCustomerRequest struct {
 	Name  *string `json:"name,omitempty"`
 	Email *string `json:"email,omitempty"`
@@ -211,9 +198,7 @@ func patchCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// -------------------------------
 // GET /v1/customers/{id}/status
-// -------------------------------
 func getCustomerKYCStatusHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -226,9 +211,7 @@ func getCustomerKYCStatusHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// -------------------------------
 // PATCH /v1/customers/{id}/verification
-// -------------------------------
 func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
@@ -266,9 +249,7 @@ func updateKYCHandler(svc *customer.Service) http.HandlerFunc {
 	}
 }
 
-// -------------------------------
 // DELETE /v1/customers/{id}
-// -------------------------------
 func deleteCustomerHandler(svc *customer.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")

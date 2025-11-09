@@ -31,7 +31,6 @@ func main() {
 
 	router := httph.NewRouter(svc)
 
-	// 🔹 HTTP server config
 	srv := &http.Server{
 		Addr:              ":" + cfg.AppPort,
 		Handler:           router,
@@ -48,7 +47,6 @@ func main() {
 		}
 	}()
 
-	// 🔹 Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

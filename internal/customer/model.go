@@ -10,10 +10,6 @@ import (
 	"github.com/nyaruka/phonenumbers"
 )
 
-// ------------------------------------------------------
-// Customer model
-// ------------------------------------------------------
-
 type Customer struct {
 	ID        uuid.UUID `json:"customer_id"`
 	Name      string    `json:"name"`
@@ -71,10 +67,6 @@ func (c *Customer) ValidateForUpdate() error {
 	}
 	return nil
 }
-
-// ------------------------------------------------------
-// Verification model (linked to customer)
-// ------------------------------------------------------
 
 type VerificationStatus string
 

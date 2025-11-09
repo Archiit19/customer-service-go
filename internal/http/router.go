@@ -22,7 +22,7 @@ func NewRouter(svc *customer.Service) http.Handler {
 		middleware.Timeout(60*time.Second),
 	)
 
-	// 🔹 Health check
+	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

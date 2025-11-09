@@ -12,19 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ----------------------------------------------------------------------
-// Common errors
-// ----------------------------------------------------------------------
 var (
 	ErrNotFound             = errors.New("customer not found")
 	ErrConflict             = errors.New("conflict: email or phone already exists")
 	ErrVerificationNotFound = errors.New("verification not found")
 	ErrPANAlreadyExists     = errors.New("PAN already exists")
 )
-
-// ----------------------------------------------------------------------
-// Repository interface
-// ----------------------------------------------------------------------
 
 type Repository interface {
 	// Customer operations
@@ -40,10 +33,6 @@ type Repository interface {
 	UpdateVerificationStatus(ctx context.Context, cid uuid.UUID, status VerificationStatus) error
 }
 
-// ----------------------------------------------------------------------
-// PGRepository implements Repository using pgxpool
-// ----------------------------------------------------------------------
-
 type PGRepository struct {
 	pool *pgxpool.Pool
 }
@@ -52,17 +41,13 @@ func NewPGRepository(pool *pgxpool.Pool) *PGRepository {
 	return &PGRepository{pool: pool}
 }
 
-// ----------------------------------------------------------------------
-// Customer operations
-// ----------------------------------------------------------------------
-
 type UpdateCustomer struct {
 	Name  *string
 	Email *string
 	Phone *string
 }
 
-// Check for unique constraint violation
+// isUniqueViolation Checks for unique constraint violation
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -229,11 +214,7 @@ func (r *PGRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// ----------------------------------------------------------------------
-// Verification operations
-// ----------------------------------------------------------------------
-
-// Create verification record
+// CreateVerification creates the verification record
 func (r *PGRepository) CreateVerification(ctx context.Context, v *Verification) (*Verification, error) {
 	q := `
 		INSERT INTO verifications (customer_id, pan_number, status)
@@ -245,7 +226,7 @@ func (r *PGRepository) CreateVerification(ctx context.Context, v *Verification) 
 	return v, err
 }
 
-// Get verification by customer ID
+// GetVerificationByCustomerID fetches verification by customer ID
 func (r *PGRepository) GetVerificationByCustomerID(ctx context.Context, cid uuid.UUID) (*Verification, error) {
 	q := `
 		SELECT id, customer_id, pan_number, status, created_at, updated_at
@@ -263,7 +244,7 @@ func (r *PGRepository) GetVerificationByCustomerID(ctx context.Context, cid uuid
 	return &v, nil
 }
 
-// Update verification status
+// UpdateVerificationStatus updates the verification status
 func (r *PGRepository) UpdateVerificationStatus(ctx context.Context, cid uuid.UUID, status VerificationStatus) error {
 	q := `
 		UPDATE verifications
