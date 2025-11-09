@@ -19,12 +19,31 @@ services:
   app:
     build: .
     env_file:
-      - .env.local
+      - .env.example
+      # Copy .env.example to .env and override with real credentials before running compose.
     ports:
       - "8080:8080"
     depends_on:
       db:
         condition: service_healthy
+
+  migrate:
+    image: postgres:16-alpine
+    container_name: customer-migrate
+    env_file:
+      - .env.example
+      # Requires a .env (derived from .env.example) with the AWS credentials to reach RDS.
+      - .env
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint: ["sh", "-c"]
+    command: |
+      set -e
+      for f in /migrations/*.sql; do
+        echo "Applying migration: $f"
+        psql "host=$DB_HOST port=$DB_PORT user=$DB_USER password=$DB_PASSWORD dbname=$DB_NAME sslmode=$DB_SSLMODE" -f "$f"
+      done
+    profiles: ["migrate"]
 
 volumes:
   pgdata:

@@ -49,9 +49,15 @@ docker build -t customer-service:latest .
 docker run --rm -p 8080:8080 --env-file .env customer-service:latest
 ```
 
+### Running migrations with Docker Compose
+```bash
+docker compose run --rm migrate
+```
+
 ### Local development (optional)
 If you want to run Postgres locally instead of AWS:
 ```bash
+cp .env.example .env       # make sure DB_HOST=db, DB_SSLMODE=disable for the local container
 docker compose up -d db
 export $(cat .env.local | xargs)  # or fill your environment manually
 psql "host=localhost port=5432 user=postgres password=postgres dbname=customerdb sslmode=disable"       -f migrations/0001_create_customers.sql
@@ -76,3 +82,4 @@ See `openapi.yaml` for the full contract.
 - `make build` – build the service
 - `make docker-build` – build docker image
 - `make docker-run` – run via docker
+- `make migrate` – apply SQL migrations using the compose helper

@@ -11,5 +11,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /out/customer-service /app/customer-service
 COPY .env.example /app/.env.example
-EXPOSE 8080
-ENTRYPOINT ["/app/customer-service"]
+COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.shEXPOSE 8080
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/customer-service"]
