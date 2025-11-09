@@ -81,12 +81,23 @@ jobs:
         run: kubectl apply -f deploy/minikube/00-namespace.yaml
 
       - name: Create image pull secret
+        env:
+          REGISTRY_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.GHCR_TOKEN }}
+          FALLBACK_USERNAME: ${{ github.actor }}
+          FALLBACK_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          USERNAME="${REGISTRY_USERNAME:-$FALLBACK_USERNAME}"
+          PASSWORD="${REGISTRY_PASSWORD:-$FALLBACK_PASSWORD}"
+          if [ -z "$USERNAME" ] || [ -z "$PASSWORD" ]; then
+            echo "Container registry credentials are missing. Set GHCR_USERNAME/GHCR_TOKEN secrets or rely on GITHUB_TOKEN." >&2
+            exit 1
+          fi
           kubectl create secret docker-registry ghcr-credentials \
             --namespace ${{ env.NAMESPACE }} \
             --docker-server=${{ env.REGISTRY }} \
-            --docker-username='${{ secrets.GHCR_USERNAME }}' \
-            --docker-password='${{ secrets.GHCR_TOKEN }}' \
+            --docker-username="$USERNAME" \
+            --docker-password="$PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Attach image pull secret to default service account
