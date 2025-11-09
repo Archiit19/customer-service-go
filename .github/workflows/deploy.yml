@@ -125,6 +125,7 @@ jobs:
           kubectl apply -f deploy/minikube/postgres.yaml
           kubectl apply -f deploy/minikube/service.yaml
           kubectl apply -f deploy/minikube/deployment.yaml
+          kubectl apply -f deploy/minikube/api-gateway.yaml
           kubectl apply -f deploy/minikube/ingress.yaml
 
       - name: Wait for database rollout
