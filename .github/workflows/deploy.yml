@@ -82,6 +82,12 @@ jobs:
       - name: Create namespace
         run: kubectl apply -f deploy/minikube/00-namespace.yaml
 
+      - name: Deploy logging stack (Loki, Promtail, Grafana)
+        run: |
+          kubectl apply -f deploy/minikube/logging/loki.yaml
+          kubectl apply -f deploy/minikube/logging/promtail.yaml
+          kubectl apply -f deploy/minikube/logging/grafana.yaml
+
       - name: Create image pull secret
         env:
           REGISTRY_USERNAME: ${{ secrets.GHCR_USERNAME }}
