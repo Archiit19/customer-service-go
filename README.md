@@ -83,3 +83,80 @@ See `openapi.yaml` for the full contract.
 - `make docker-build` – build docker image
 - `make docker-run` – run via docker
 - `make migrate` – apply SQL migrations using the compose helper
+
+
+## Deploy to Minikube with an Ingress gateway
+
+The repository ships with Kubernetes manifests under `deploy/minikube` that
+spin up PostgreSQL, the customer service API, and an ingress gateway that
+exposes the API publicly. The steps below assume that you have `minikube`,
+`kubectl`, and `docker` installed locally.
+
+1. **Start Minikube and enable the ingress controller**
+
+   ```bash
+   minikube start
+   minikube addons enable ingress
+   ```
+
+2. **Build the service image inside the Minikube Docker daemon**
+
+   ```bash
+   eval "$(minikube -p minikube docker-env)"
+   docker build -t customer-service:latest .
+   ```
+
+   > Tip: run `eval "$(minikube docker-env -u)"` afterwards to restore your
+   > original Docker context.
+
+3. **Apply the Kubernetes manifests**
+
+   ```bash
+   kubectl apply -f deploy/minikube
+   ```
+
+4. **Run the database migration**
+
+   Forward PostgreSQL to your machine and apply the SQL migration using the
+   bundled script:
+
+   ```bash
+   kubectl port-forward svc/postgres -n customer-service 5432:5432
+   # in a new terminal
+   psql "host=127.0.0.1 port=5432 user=postgres password=postgres dbname=customerdb sslmode=disable" \
+     -f migrations/0001_create_customers.sql
+   ```
+
+   After the migration succeeds, stop the `kubectl port-forward` command.
+
+5. **Expose the ingress publicly**
+
+   Pick a DNS-friendly host name that maps to your Minikube IP. The example
+   below uses the free `nip.io` wildcard domain:
+
+   ```bash
+   MINIKUBE_IP=$(minikube ip)
+   PUBLIC_HOST="customer-service.${MINIKUBE_IP}.nip.io"
+   kubectl patch ingress customer-service -n customer-service \
+     --type='json' \
+     -p="[{\"op\":\"replace\",\"path\":\"/spec/rules/0/host\",\"value\":\"${PUBLIC_HOST}\"}]"
+   ```
+
+   Start the tunnel so that the `LoadBalancer` IP becomes reachable from the
+   internet:
+
+   ```bash
+   minikube tunnel
+   ```
+
+6. **Verify the deployment**
+
+   With the tunnel running you can reach the API through the ingress gateway:
+
+   ```bash
+   curl "http://${PUBLIC_HOST}/healthz"
+   curl "http://${PUBLIC_HOST}/api/v1/customers"
+   ```
+
+   Replace `PUBLIC_HOST` with the value you set in the previous step if you are
+   running the commands in a new shell.
