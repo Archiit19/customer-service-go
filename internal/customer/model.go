@@ -39,7 +39,7 @@ func (c *Customer) ValidateForCreate() error {
 		return ErrInvalidPhone
 	}
 
-	// ✅ Validate phone number using phonenumbers library
+	// Validate phone number using phonenumbers library
 	num, err := phonenumbers.Parse(c.Phone, "IN") // "IN" → default region for India
 	if err != nil || !phonenumbers.IsValidNumber(num) {
 		return ErrInvalidPhone

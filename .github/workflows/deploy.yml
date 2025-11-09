@@ -2,13 +2,15 @@ name: Deploy to Kubernetes
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   NAMESPACE: customer-service
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-north-1' }}
 
 jobs:
   build-and-deploy:
@@ -39,6 +41,7 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
+
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
@@ -59,12 +62,21 @@ jobs:
             exit 1
           fi
           mkdir -p "$HOME/.kube"
-          printf '%s' "$KUBE_CONFIG_B64" | base64 --decode > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
-          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+          CONFIG_PATH="$HOME/.kube/config"
+          printf '%s' "$KUBE_CONFIG_B64" | base64 --decode > "$CONFIG_PATH"
+          chmod 600 "$CONFIG_PATH"
+          echo "KUBECONFIG=$CONFIG_PATH" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Check cluster connectivity
         run: kubectl cluster-info
+
       - name: Create namespace
         run: kubectl apply -f deploy/minikube/00-namespace.yaml
 
@@ -76,12 +88,14 @@ jobs:
             --docker-username='${{ secrets.GHCR_USERNAME }}' \
             --docker-password='${{ secrets.GHCR_TOKEN }}' \
             --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Attach image pull secret to default service account
         run: |
           kubectl patch serviceaccount default \
             --namespace ${{ env.NAMESPACE }} \
             --type merge \
             -p '{"imagePullSecrets":[{"name":"ghcr-credentials"}]}'
+
       - name: Create database credentials secret
         run: |
           kubectl create secret generic customer-service-db-secret \
@@ -91,6 +105,7 @@ jobs:
             --from-literal=POSTGRES_USER='${{ secrets.DB_USER }}' \
             --from-literal=POSTGRES_PASSWORD='${{ secrets.DB_PASSWORD }}' \
             --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply config map and services
         run: |
           kubectl apply -f deploy/minikube/configmap.yaml
@@ -98,6 +113,7 @@ jobs:
           kubectl apply -f deploy/minikube/service.yaml
           kubectl apply -f deploy/minikube/deployment.yaml
           kubectl apply -f deploy/minikube/ingress.yaml
+
       - name: Wait for database rollout
         run: kubectl rollout status deployment/postgres -n ${{ env.NAMESPACE }} --timeout=180s
 
@@ -111,10 +127,12 @@ jobs:
             kubectl exec -n ${{ env.NAMESPACE }} "$POD" -- env PGPASSWORD='${{ secrets.DB_PASSWORD }}' \
               psql --host=localhost --username='${{ secrets.DB_USER }}' --dbname='customerdb' --file="/tmp/$base"
           done
+
       - name: Update deployment image
         run: |
           kubectl set image deployment/customer-service customer-service=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --namespace ${{ env.NAMESPACE }}
+
       - name: Wait for service rollout
         run: kubectl rollout status deployment/customer-service -n ${{ env.NAMESPACE }} --timeout=300s
 
