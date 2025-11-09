@@ -152,3 +152,51 @@ exposes the API publicly. The steps below assume that you have `minikube`,
 
    Replace `PUBLIC_HOST` with the value you set in the previous step if you are
    running the commands in a new shell.
+
+## Continuous deployment to EC2 + AWS RDS
+
+Pushing to the `main` branch triggers the GitHub Actions workflow defined in
+`.github/workflows/deploy.yml`. The job ensures the EC2 instance always runs the
+latest service image against your RDS instance:
+
+1. Build the Docker image and bundle the SQL files from `migrations/`.
+2. Copy the image tarball and migrations archive to the EC2 host.
+3. Run the migrations from inside a temporary `postgres:16-alpine` container
+   (`docker run --rm --network host ...`) so the SQL executes directly against
+   RDS using the credentials stored in repository secrets.
+4. Restart the long-running `customer-service` container with the new image and
+   environment configured for RDS (`DB_HOST`, `DB_PORT`, etc.).
+
+To confirm the job executed successfully, open the "Deploy to EC2 with Docker"
+workflow run in GitHub Actions and verify the `Archive SQL migrations`, `Copy
+image to EC2`, and `SSH into EC2 and deploy container` steps are green.
+
+### Verifying RDS connectivity from EC2
+
+Once the workflow finishes, log into the EC2 host:
+
+```bash
+ssh -i /path/to/key.pem ${EC2_USER}@${EC2_HOST}
+```
+
+Run a quick connectivity check against RDS using the same Docker image the
+workflow used for migrations (set the `DB_*` environment variables first or
+substitute literal values in the command):
+
+```bash
+docker run --rm --network host postgres:16-alpine \
+  sh -c "psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER password=$DB_PASSWORD dbname=$DB_NAME sslmode=$DB_SSLMODE\" -c 'SELECT 1'"
+```
+
+Next, confirm the service container is running the latest image and can reach
+the database:
+
+```bash
+docker ps --filter "name=customer-service"
+docker logs customer-service --tail=100
+curl http://localhost:8080/healthz
+```
+
+If the connectivity check fails, ensure the RDS security group allows inbound
+traffic from the EC2 instance's security group or private IP address, and that
+the subnet routing permits communication.
