@@ -71,9 +71,20 @@ func (c *Customer) ValidateForUpdate() error {
 type VerificationStatus string
 
 const (
-	StatusPending VerificationStatus = "PENDING"
-	StatusDone    VerificationStatus = "DONE"
+	StatusPending  VerificationStatus = "PENDING"
+	StatusRejected VerificationStatus = "REJECTED"
+	StatusVerified VerificationStatus = "VERIFIED"
 )
+
+// IsValidStatus returns true only for known VerificationStatus values.
+func IsValidStatus(status VerificationStatus) bool {
+	switch status {
+	case StatusPending, StatusRejected, StatusVerified:
+		return true
+	default:
+		return false
+	}
+}
 
 // Verification table represents PAN/document verification records for customers.
 type Verification struct {

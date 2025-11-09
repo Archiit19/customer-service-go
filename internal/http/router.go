@@ -13,7 +13,7 @@ import (
 func NewRouter(svc *customer.Service) http.Handler {
 	r := chi.NewRouter()
 
-	// 🔹 Basic middlewares
+	// Basic middlewares
 	r.Use(
 		middleware.RequestID,
 		middleware.RealIP,

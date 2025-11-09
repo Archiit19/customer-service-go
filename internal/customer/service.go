@@ -83,7 +83,7 @@ func (s *Service) UpdateVerificationStatus(ctx context.Context, customerID, newS
 	}
 
 	status := VerificationStatus(newStatus)
-	if status != StatusPending && status != StatusDone {
+	if !IsValidStatus(VerificationStatus(status)) {
 		return nil, fmt.Errorf("invalid verification status")
 	}
 
