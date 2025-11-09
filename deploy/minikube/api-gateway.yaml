@@ -22,6 +22,10 @@ data:
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
         }
+
+        location = /healthz {
+          proxy_pass http://customer_service_backend/healthz;
+        }
       }
     }
 ---
@@ -55,13 +59,13 @@ spec:
               subPath: nginx.conf
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
