@@ -161,50 +161,40 @@ exposes the API publicly. The steps below assume that you have `minikube`,
    Replace `PUBLIC_HOST` with the value you set in the previous step if you are
    running the commands in a new shell.
 
-## Continuous deployment to EC2 + AWS RDS
+## Continuous deployment to Kubernetes
 
-Pushing to the `main` branch triggers the GitHub Actions workflow defined in
-`.github/workflows/deploy.yml`. The job ensures the EC2 instance always runs the
-latest service image against your RDS instance:
+Pushing to the `main` branch triggers the GitHub Actions workflow in
+`.github/workflows/deploy.yml`. The pipeline builds and publishes a container
+image to GitHub Container Registry (GHCR), applies the manifests under
+`deploy/minikube`, runs the SQL migrations against the in-cluster PostgreSQL
+instance, and waits for the rollout to complete.
 
-1. Build the Docker image and bundle the SQL files from `migrations/`.
-2. Copy the image tarball and migrations archive to the EC2 host.
-3. Run the migrations from inside a temporary `postgres:16-alpine` container
-   (`docker run --rm --network host ...`) so the SQL executes directly against
-   RDS using the credentials stored in repository secrets.
-4. Restart the long-running `customer-service` container with the new image and
-   environment configured for RDS (`DB_HOST`, `DB_PORT`, etc.).
+### Required repository secrets
 
-To confirm the job executed successfully, open the "Deploy to EC2 with Docker"
-workflow run in GitHub Actions and verify the `Archive SQL migrations`, `Copy
-image to EC2`, and `SSH into EC2 and deploy container` steps are green.
+| Secret | Purpose |
+| ------ | ------- |
+| `KUBE_CONFIG` | Base64-encoded kubeconfig file with permissions to deploy into the cluster. |
+| `GHCR_USERNAME` / `GHCR_TOKEN` | Credentials used to create the `ghcr-credentials` image pull secret inside the cluster. The token must have `read:packages` and `write:packages` scopes. |
+| `DB_USER` / `DB_PASSWORD` | Database credentials that are stored in the `customer-service-db-secret` secret and shared between PostgreSQL and the API deployment. |
 
-### Verifying RDS connectivity from EC2
+The workflow also relies on the built-in `GITHUB_TOKEN` to push the image to
+GHCR under the `ghcr.io/<owner>/<repo>` namespace.
 
-Once the workflow finishes, log into the EC2 host:
+### What the workflow does
 
-```bash
-ssh -i /path/to/key.pem ${EC2_USER}@${EC2_HOST}
-```
+1. Builds the service image with Docker Buildx and pushes it to GHCR tagged with
+   the commit SHA and branch name.
+2. Configures access to the Kubernetes API using the provided kubeconfig.
+3. Applies the namespace, config map, PostgreSQL deployment/service, customer
+   service deployment, and ingress manifests from `deploy/minikube`.
+4. Recreates the database credentials secret and GHCR image pull secret so that
+   credentials can be rotated without manual intervention.
+5. Waits for PostgreSQL to become ready, copies the SQL files from `migrations/`
+   into the pod, and executes them with `psql`.
+6. Updates the `customer-service` deployment to use the freshly built image and
+   waits for a successful rollout before printing the pod/service/ingress
+   summary.
 
-Run a quick connectivity check against RDS using the same Docker image the
-workflow used for migrations (set the `DB_*` environment variables first or
-substitute literal values in the command):
-
-```bash
-docker run --rm --network host postgres:16-alpine \
-  sh -c "psql \"host=$DB_HOST port=$DB_PORT user=$DB_USER password=$DB_PASSWORD dbname=$DB_NAME sslmode=$DB_SSLMODE\" -c 'SELECT 1'"
-```
-
-Next, confirm the service container is running the latest image and can reach
-the database:
-
-```bash
-docker ps --filter "name=customer-service"
-docker logs customer-service --tail=100
-curl http://localhost:8080/healthz
-```
-
-If the connectivity check fails, ensure the RDS security group allows inbound
-traffic from the EC2 instance's security group or private IP address, and that
-the subnet routing permits communication.
+To verify a deployment, open the "Deploy to Kubernetes" workflow run in GitHub
+Actions and confirm that the `Run database migrations` and `Wait for service
+rollout` steps complete successfully.
