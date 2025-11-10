@@ -245,6 +245,10 @@ func (r *PGRepository) CreateVerification(ctx context.Context, v *Verification) 
 	q := `
 		INSERT INTO verifications (customer_id, pan_number, status)
 		VALUES ($1, $2, $3)
+		ON CONFLICT (customer_id) DO UPDATE
+		SET pan_number = EXCLUDED.pan_number,
+		    status = EXCLUDED.status,
+		    updated_at = now()
 		RETURNING id, customer_id, pan_number, status, created_at, updated_at;
 	`
 	row := r.pool.QueryRow(ctx, q, v.CustomerID, v.PANNumber, v.Status)

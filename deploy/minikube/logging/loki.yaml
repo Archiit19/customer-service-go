@@ -94,6 +94,8 @@ spec:
         - name: loki-config
           configMap:
             name: loki-config
+        - name: loki-data
+          emptyDir: {}
   volumeClaimTemplates: []
   # We rely on emptyDir for simplicity; swap to PVC for production workloads.
 ---
