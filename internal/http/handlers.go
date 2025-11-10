@@ -104,6 +104,8 @@ func (h *Handler) GetCustomer(w http.ResponseWriter, r *http.Request) {
 		"phone":            cust.Phone,
 		"created_at":       cust.CreatedAt,
 		"updated_at":       cust.UpdatedAt,
+		"pan_number":       cust.PANNumber,
+		"status":           cust.Status,
 		"status_url":       fmt.Sprintf("/v1/customers/%s/status", cust.ID),
 		"verification_url": fmt.Sprintf("/v1/customers/%s/verification", cust.ID),
 	}
