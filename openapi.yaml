@@ -3,9 +3,20 @@ info:
   title: Customer Service API
   version: 1.0.0
 servers:
-  - url: http://localhost:8080/api/v1
+  - url: http://localhost:8080
+    description: Local development server
 paths:
-  /customers:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is ready to receive traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+  /v1/customers:
     post:
       summary: Create a customer
       requestBody:
@@ -16,128 +27,239 @@ paths:
               $ref: '#/components/schemas/CustomerCreate'
       responses:
         '201':
-          description: Created
+          description: Customer created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Customer'
-        '409':
-          description: Conflict
+                $ref: '#/components/schemas/CustomerResource'
         '400':
-          description: Bad Request
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email or phone already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     get:
       summary: List customers
       parameters:
-        - in: query
-          name: kyc_status
-          schema:
-            type: string
-            enum: [PENDING, VERIFIED, REJECTED]
         - in: query
           name: page
           schema:
             type: integer
             minimum: 1
-          required: false
+          description: Defaults to 1
         - in: query
           name: limit
           schema:
             type: integer
             minimum: 1
-          required: false
+            maximum: 200
+          description: Defaults to 20, capped at 200
       responses:
         '200':
-          description: OK
+          description: Paginated customers
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CustomerList'
-  /customers/{id}:
+                $ref: '#/components/schemas/CustomerCollection'
+        '400':
+          description: Invalid pagination parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/customers/{id}:
     get:
-      summary: Get a customer by ID
+      summary: Fetch customer by ID
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/CustomerID'
       responses:
         '200':
-          description: OK
+          description: Customer found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Customer'
+                $ref: '#/components/schemas/CustomerResource'
+        '400':
+          description: Invalid UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Not Found
-    put:
-      summary: Update a customer
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: Partially update a customer
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/CustomerID'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CustomerUpdate'
+              $ref: '#/components/schemas/CustomerPatch'
       responses:
         '200':
-          description: OK
+          description: Updated customer
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Customer'
+                $ref: '#/components/schemas/CustomerResource'
+        '400':
+          description: Invalid payload or UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Not Found
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email or phone already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     delete:
       summary: Soft-delete a customer
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/CustomerID'
       responses:
         '204':
-          description: No Content
+          description: Customer removed
+        '400':
+          description: Invalid UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Not Found
-  /customers/{id}/kyc:
-    patch:
-      summary: Update KYC status
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/customers/{id}/status:
+    get:
+      summary: Fetch verification status for a customer
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/CustomerID'
+      responses:
+        '200':
+          description: Verification document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResource'
+        '404':
+          description: Verification record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/customers/{id}/verification:
+    patch:
+      summary: Create a PAN record or update the verification status
+      parameters:
+        - $ref: '#/components/parameters/CustomerID'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/KYCUpdate'
+              $ref: '#/components/schemas/VerificationPatch'
       responses:
         '200':
-          description: OK
+          description: Verification status updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Customer'
+                $ref: '#/components/schemas/VerificationResource'
+        '201':
+          description: PAN record captured and verification initialized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResource'
+        '400':
+          description: Invalid JSON body or missing fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Not Found
+          description: Verification record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+  parameters:
+    CustomerID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Customer identifier
   schemas:
-    Customer:
+    HealthCheck:
       type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+    CustomerCreate:
+      type: object
+      required:
+        - name
+        - email
+        - phone
+      properties:
+        name:
+          type: string
+          example: Jane Doe
+        email:
+          type: string
+          format: email
+          example: jane@example.com
+        phone:
+          type: string
+          example: "+911234567890"
+    CustomerPatch:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+      description: At least one field must be provided
+    CustomerResource:
+      type: object
+      required:
+        - customer_id
+        - name
+        - email
+        - phone
+        - created_at
+        - updated_at
       properties:
         customer_id:
           type: string
@@ -149,51 +271,85 @@ components:
           format: email
         phone:
           type: string
-        kyc_status:
+        pan_number:
           type: string
-          enum: [PENDING, VERIFIED, REJECTED]
+          nullable: true
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-    CustomerCreate:
+        status_url:
+          type: string
+          description: Relative link to the verification status resource
+        verification_url:
+          type: string
+          description: Relative link to the verification management resource
+    CustomerCollection:
       type: object
-      required: [name, email, phone]
-      properties:
-        name:
-          type: string
-        email:
-          type: string
-        phone:
-          type: string
-    CustomerUpdate:
-      type: object
-      properties:
-        name:
-          type: string
-        email:
-          type: string
-        phone:
-          type: string
-    KYCUpdate:
-      type: object
-      required: [kyc_status]
-      properties:
-        kyc_status:
-          type: string
-          enum: [PENDING, VERIFIED, REJECTED]
-    CustomerList:
-      type: object
+      required:
+        - page
+        - limit
+        - total
+        - data
       properties:
         page:
           type: integer
+          minimum: 1
         limit:
           type: integer
+          minimum: 1
         total:
           type: integer
+          minimum: 0
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Customer'
+            $ref: '#/components/schemas/CustomerResource'
+    VerificationPatch:
+      type: object
+      properties:
+        pan_number:
+          type: string
+          description: Provide to create or overwrite the stored PAN
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+      description: Provide either pan_number (creates/overwrites) or status (transitions the verification state)
+    VerificationResource:
+      type: object
+      required:
+        - id
+        - customer_id
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        pan_number:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    VerificationStatus:
+      type: string
+      enum: [PENDING, REJECTED, VERIFIED]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
