@@ -1,0 +1,204 @@
+{
+	"info": {
+		"_postman_id": "39ead0d9-df02-4bd6-92bf-fb16db967228",
+		"name": "Customer Service",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "278417"
+	},
+	"item": [
+		{
+			"name": "Create Customer",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Archit\",\n    \"email\":\"2023mt93088@bits.com\",\n    \"phone\": \"9673007893\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://ec2-51-20-86-211.eu-north-1.compute.amazonaws.com:8080/v1/customers",
+					"protocol": "http",
+					"host": [
+						"ec2-51-20-86-211",
+						"eu-north-1",
+						"compute",
+						"amazonaws",
+						"com"
+					],
+					"port": "8080",
+					"path": [
+						"v1",
+						"customers"
+					],
+					"query": [
+						{
+							"key": "status",
+							"value": "ACCEPT",
+							"disabled": true
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Customers",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "GET customer details",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers/b33bc5a7-38f1-4056-acd1-48c4a1316146",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers",
+						"b33bc5a7-38f1-4056-acd1-48c4a1316146"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Patch customer",
+			"request": {
+				"method": "PATCH",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers/4e5bd73e-7560-4b98-bef0-74f5aeba6906",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers",
+						"4e5bd73e-7560-4b98-bef0-74f5aeba6906"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "DELETE customer",
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers/5f822686-9621-40f5-b214-85b2100edbc5",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers",
+						"5f822686-9621-40f5-b214-85b2100edbc5"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Valid Verification Status",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers/b33bc5a7-38f1-4056-acd1-48c4a1316146/status",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers",
+						"b33bc5a7-38f1-4056-acd1-48c4a1316146",
+						"status"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "patch verification",
+			"request": {
+				"method": "PATCH",
+				"header": [],
+				"url": {
+					"raw": "http://a8fceae2e9bb54961acefcb52bf8f6d5-806988631.eu-north-1.elb.amazonaws.com/v1/customers/b33bc5a7-38f1-4056-acd1-48c4a1316146/verification",
+					"protocol": "http",
+					"host": [
+						"a8fceae2e9bb54961acefcb52bf8f6d5-806988631",
+						"eu-north-1",
+						"elb",
+						"amazonaws",
+						"com"
+					],
+					"path": [
+						"v1",
+						"customers",
+						"b33bc5a7-38f1-4056-acd1-48c4a1316146",
+						"verification"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
