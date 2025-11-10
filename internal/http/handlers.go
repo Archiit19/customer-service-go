@@ -259,6 +259,18 @@ func (h *Handler) UpdateKYC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if payload.Status != "" {
+		current, err := h.svc.GetVerificationByCustomerID(ctx, id)
+		if err != nil {
+			h.logger.Warn(ctx, "http update verification status unable to load current record", logger.Err(err), logger.String("customer_id", id))
+			writeError(w, http.StatusNotFound, "verification record not found")
+			return
+		}
+		if current.PANNumber == nil || *current.PANNumber == "" {
+			h.logger.Warn(ctx, "http update verification status rejected: missing PAN", logger.String("customer_id", id), logger.String("status", payload.Status))
+			writeError(w, http.StatusBadRequest, "pan_number must be provided before updating status")
+			return
+		}
+
 		verification, err := h.svc.UpdateVerificationStatus(ctx, id, payload.Status)
 		if err != nil {
 			h.logger.Error(ctx, "http update verification status failed", logger.Err(err), logger.String("customer_id", id), logger.String("status", payload.Status))
