@@ -85,6 +85,8 @@ jobs:
       - name: Deploy logging stack (Loki, Promtail, Grafana)
         run: |
           kubectl apply -f deploy/minikube/logging/loki.yaml
+          kubectl rollout restart statefulset/loki -n ${{ env.NAMESPACE }}
+          kubectl rollout status statefulset/loki -n ${{ env.NAMESPACE }} --timeout=180s
           kubectl apply -f deploy/minikube/logging/promtail.yaml
           kubectl apply -f deploy/minikube/logging/grafana.yaml
 
