@@ -13,6 +13,7 @@ data:
     common:
       path_prefix: /data/loki
       ring:
+        replication_factor: 1
         kvstore:
           store: inmemory
 
@@ -42,6 +43,8 @@ data:
       reject_old_samples: true
       reject_old_samples_max_age: 168h
       allow_structured_metadata: false
+      ring:
+        unhealthy_instance_tolerance: 1
 
     chunk_store_config: {}
 ---
