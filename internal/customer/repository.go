@@ -80,7 +80,7 @@ RETURNING id, name, email, phone, created_at, updated_at;
 
 	// create corresponding verification record
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO verifications (customer_id, status, pan_number) VALUES ($1, 'NOT_FOUND', NULL);`,
+		`INSERT INTO verifications (customer_id, status, pan_number) VALUES ($1, 'Pending', NULL);`,
 		out.ID,
 	)
 	if err != nil {
@@ -88,7 +88,7 @@ RETURNING id, name, email, phone, created_at, updated_at;
 		return nil, fmt.Errorf("failed to create verification: %w", err)
 	}
 
-	out.Status = "NOT_FOUND"
+	out.Status = "Pending"
 	out.PANNumber = nil
 	r.logger.Info(ctx, "customer created", logger.String("customer_id", out.ID.String()))
 	return &out, nil
